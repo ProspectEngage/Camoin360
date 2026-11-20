@@ -7,17 +7,16 @@ jest.mock("./apiClient", () => ({ prefetch: jest.fn() }));
 jest.mock("./auth", () => ({ API_BASE_URL: "http://localhost", getAuthHeaders: () => ({ Authorization: "Bearer test" }) }));
 jest.mock("./components/MaintenanceHome", () => () => <div>Home content</div>);
 jest.mock("./components/EnrichmentWorkspace", () => () => <div>Enrichment content</div>);
-jest.mock("./components/DuplicateAccounts", () => () => <div>Duplicate Accounts content</div>);
 let root, container;
 beforeEach(() => { jest.clearAllMocks(); window.history.replaceState({}, "", "/dashboard"); container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 const render = async () => act(async () => root.render(<LandingPage onLogout={() => {}} />));
 const button = (text) => Array.from(container.querySelectorAll("button")).find((node) => node.textContent === text);
 it("shows exactly the consolidated navigation with Home first", async () => {
-  await render(); expect(Array.from(container.querySelectorAll("nav button")).map((node) => node.textContent)).toEqual(["Home", "Enrichment", "Duplicate Accounts"]);
+  await render(); expect(Array.from(container.querySelectorAll("nav button")).map((node) => node.textContent)).toEqual(["Home", "Enrichment"]);
   expect(container.textContent).toContain("Home content"); expect(button("Home").getAttribute("aria-current")).toBe("page");
 });
-it.each([["/dashboard/enrichment", "Enrichment"], ["/dashboard/duplicate-accounts", "Duplicate Accounts"]])("supports direct navigation to %s", async (route, name) => {
+it.each([["/dashboard/enrichment", "Enrichment"]])("supports direct navigation to %s", async (route, name) => {
   window.history.replaceState({}, "", route); await render(); expect(container.textContent).toContain(`${name} content`); expect(button(name).getAttribute("aria-current")).toBe("page");
 });
 it.each(["/dashboard/seamless", "/dashboard/data-quality"])("replaces the legacy bookmark %s with the canonical route", async (route) => {
@@ -40,8 +39,8 @@ it("prefetches only narrow credits for Enrichment and the existing Home contract
   expect(prefetch).toHaveBeenCalledWith("http://localhost/maintenance/home", expect.objectContaining({ params: { days: 14, view: "recent", limit: 25 }, ttl: 30000 }));
 });
 
-it("redirects the retired Summary Analytics bookmark to Home", async () => {
-  window.history.replaceState({}, "", "/dashboard/summary-analytics?source=bookmark#sectors");
+it.each(["/dashboard/summary-analytics", "/dashboard/duplicate-accounts"])("redirects the retired bookmark %s to Home", async (route) => {
+  window.history.replaceState({}, "", route + "?source=bookmark#sectors");
   const replace = jest.spyOn(window.history, "replaceState");
   await render();
   expect(window.location.pathname).toBe("/dashboard");

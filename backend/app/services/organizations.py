@@ -9,7 +9,7 @@ def list_organizations():
         rows = connection.execute(
             """
             SELECT id, dynamics_account_id, organization_name, city, state, user_count,
-                   contract_expiration, created_at, updated_at
+                   contract_expiration, number_of_users, usage_type, created_at, updated_at
             FROM organizations
             ORDER BY LOWER(organization_name) ASC
             """
@@ -23,7 +23,7 @@ def list_manual_organizations():
         rows = connection.execute(
             """
             SELECT id, dynamics_account_id, organization_name, city, state, user_count,
-                   contract_expiration, created_at, updated_at
+                   contract_expiration, number_of_users, usage_type, created_at, updated_at
             FROM organizations
             WHERE dynamics_account_id LIKE 'manual-%'
             ORDER BY LOWER(organization_name) ASC
@@ -37,7 +37,7 @@ def _select_organization_by_id(connection, organization_id: int):
     return connection.execute(
         """
         SELECT id, dynamics_account_id, organization_name, city, state, user_count,
-               contract_expiration, created_at, updated_at
+               contract_expiration, number_of_users, usage_type, created_at, updated_at
         FROM organizations
         WHERE id = ?
         """,
@@ -62,9 +62,9 @@ def create_organization(organization_details: dict):
             """
             INSERT INTO organizations (
                 dynamics_account_id, organization_name, city, state, user_count,
-                contract_expiration
+                contract_expiration, number_of_users, usage_type
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 dynamics_account_id,
@@ -73,12 +73,14 @@ def create_organization(organization_details: dict):
                 organization_details.get("state") or "",
                 0,
                 organization_details.get("contract_expiration"),
+                organization_details.get("number_of_users"),
+                organization_details.get("usage_type"),
             ),
         )
         row = connection.execute(
             """
             SELECT id, dynamics_account_id, organization_name, city, state, user_count,
-                   contract_expiration, created_at, updated_at
+                   contract_expiration, number_of_users, usage_type, created_at, updated_at
             FROM organizations
             WHERE dynamics_account_id = ?
             """,
@@ -128,7 +130,7 @@ def upsert_organization(organization: dict):
         row = connection.execute(
             """
             SELECT id, dynamics_account_id, organization_name, city, state, user_count,
-                   contract_expiration, created_at, updated_at
+                   contract_expiration, number_of_users, usage_type, created_at, updated_at
             FROM organizations
             WHERE dynamics_account_id = ?
             """,
@@ -156,6 +158,8 @@ def update_organization(organization_id: int, organization_details: dict):
                 city = ?,
                 state = ?,
                 contract_expiration = ?,
+                number_of_users = ?,
+                usage_type = ?,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
@@ -170,6 +174,8 @@ def update_organization(organization_id: int, organization_details: dict):
                 organization_details["contract_expiration"]
                 if "contract_expiration" in organization_details
                 else existing_organization.contract_expiration,
+                organization_details.get("number_of_users", existing_organization.number_of_users),
+                organization_details.get("usage_type", existing_organization.usage_type),
                 organization_id,
             ),
         )

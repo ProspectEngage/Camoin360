@@ -41,6 +41,8 @@ const initialOrganizationFormValues = {
   city: "",
   state: "",
   contract_expiration: "",
+  number_of_users: "",
+  usage_type: "",
 };
 const initialEditOrganizationFormValues = {
   id: "",
@@ -70,10 +72,35 @@ const columns = [
   { key: "organization_name", label: "Organization Name", width: 280 },
   { key: "city", label: "City", width: 200 },
   { key: "state", label: "State", width: 160 },
-  { key: "user_count", label: "Users", width: 120 },
+  { key: "number_of_users", label: "Number of Users", width: 150 },
+  { key: "usage_type", label: "Used For", width: 170 },
+  { key: "user_count", label: "Portal Accounts", width: 150 },
   { key: "contract_expiration", label: "Contract Expiration", width: 190 },
   { key: "actions", label: "Actions", width: 180 },
 ];
+
+const usageLabels = { prospecting: "Prospecting", bre: "BRE", both: "Both" };
+
+function OrganizationUsageFields({ values, onChange, disabled }) {
+  return <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+    <TextField fullWidth label="Number of users" type="number" value={values.number_of_users} disabled={disabled}
+      inputProps={{ min: 0, max: 2147483647, step: 1 }} onChange={(event) => onChange("number_of_users", event.target.value)}
+      helperText="Total PE users · Leave blank if unknown" />
+    <TextField fullWidth select label="Used for" value={values.usage_type} disabled={disabled}
+      SelectProps={{ displayEmpty: true }} InputLabelProps={{ shrink: true }} onChange={(event) => onChange("usage_type", event.target.value)}>
+      <MenuItem value="">Not set</MenuItem>
+      {Object.entries(usageLabels).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
+    </TextField>
+  </Stack>;
+}
+
+function organizationUsagePayload(values) {
+  const count = values.number_of_users === "" ? null : Number(values.number_of_users);
+  if (count !== null && (!Number.isInteger(count) || count < 0 || count > 2147483647)) {
+    throw new Error("Number of users must be a non-negative whole number.");
+  }
+  return { number_of_users: count, usage_type: values.usage_type || null };
+}
 
 const detailUserColumns = [
   { key: "name", label: "Name", width: 220 },
@@ -276,6 +303,8 @@ export default function PEClients() {
       city: client.city || "",
       state: client.state || "",
       contract_expiration: getDateInputValue(client.contract_expiration),
+      number_of_users: client.number_of_users ?? "",
+      usage_type: client.usage_type || "",
     });
     setEditOrganizationFormError("");
     setIsEditOrganizationDialogOpen(true);
@@ -374,6 +403,7 @@ export default function PEClients() {
         API_URL,
         {
           ...organizationFormValues,
+          ...organizationUsagePayload(organizationFormValues),
           organization_name: organizationName,
           city: organizationFormValues.city.trim(),
           state: organizationFormValues.state.trim(),
@@ -419,6 +449,7 @@ export default function PEClients() {
       const response = await axios.patch(
         `${API_URL}/${editOrganizationFormValues.id}`,
         {
+          ...organizationUsagePayload(editOrganizationFormValues),
           organization_name: organizationName,
           city: editOrganizationFormValues.city.trim(),
           state: editOrganizationFormValues.state.trim(),
@@ -681,7 +712,7 @@ export default function PEClients() {
     const rows = [
       exportColumns.map((column) => escapeCsvValue(column.label)).join(","),
       ...clients.map((client) =>
-        exportColumns.map((column) => escapeCsvValue(client[column.key])).join(",")
+        exportColumns.map((column) => escapeCsvValue(column.key === "usage_type" ? usageLabels[client.usage_type] || "Not set" : client[column.key])).join(",")
       ),
     ];
     const downloadUrl = URL.createObjectURL(new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" }));
@@ -735,6 +766,8 @@ export default function PEClients() {
                     <TableCell sx={{ fontWeight: 700 }}>{client.organization_name || "Missing"}</TableCell>
                     <TableCell>{client.city || "Missing"}</TableCell>
                     <TableCell>{client.state || "Missing"}</TableCell>
+                    <TableCell>{client.number_of_users ?? "Not set"}</TableCell>
+                    <TableCell>{client.usage_type ? <Chip size="small" label={usageLabels[client.usage_type] || "Not set"} color="primary" variant="outlined" /> : "Not set"}</TableCell>
                     <TableCell>{client.user_count ?? 0}</TableCell>
                     <TableCell>{formatDate(client.contract_expiration)}</TableCell>
                     <TableCell>
@@ -813,6 +846,9 @@ export default function PEClients() {
               </Button>
               <Typography color="primary.main" sx={{ fontWeight: 800 }} variant="h6">
                 {selectedOrganization.organization_name || "Missing"}
+              </Typography>
+              <Typography color="text.secondary" variant="body2" sx={{ mt: 0.5 }}>
+                Number of users: {selectedOrganization.number_of_users ?? "Not set"} · Used for: {usageLabels[selectedOrganization.usage_type] || "Not set"}
               </Typography>
               <Stack direction={{ xs: "column", sm: "row" }} spacing={{ xs: 0.5, sm: 2 }} sx={{ mt: 0.5 }}>
                 <Typography color="text.secondary" variant="body2">
@@ -928,7 +964,7 @@ export default function PEClients() {
         />
         <SummaryMetricCard
           description="Portal users linked to client organizations"
-          label="Total Users"
+          label="Portal Accounts"
           value={users.length}
         />
       </Box>
@@ -998,12 +1034,13 @@ export default function PEClients() {
 
       <Dialog fullWidth maxWidth="sm" onClose={closeAddDialog} open={isAddDialogOpen}>
         <Box component="form" onSubmit={submitOrganization}>
-          <ModalTitle onClose={closeAddDialog} subtitle="Creates a client account in Dynamics.">
+          <ModalTitle onClose={closeAddDialog} subtitle="Add an organization and track its PE usage.">
             Add Organization
           </ModalTitle>
           <DialogContent dividers>
             <Stack spacing={2}>
               {formError ? <Alert severity="error">{formError}</Alert> : null}
+              <OrganizationUsageFields values={organizationFormValues} onChange={updateOrganizationFormValue} disabled={isSaving} />
               <TextField
                 autoFocus
                 disabled={isSaving}
@@ -1057,6 +1094,7 @@ export default function PEClients() {
           <DialogContent dividers>
             <Stack spacing={2}>
               {editOrganizationFormError ? <Alert severity="error">{editOrganizationFormError}</Alert> : null}
+              <OrganizationUsageFields values={editOrganizationFormValues} onChange={updateEditOrganizationFormValue} disabled={isSaving} />
               <TextField
                 autoFocus
                 disabled={isSaving}

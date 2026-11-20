@@ -12,6 +12,8 @@ class Organization:
     contract_expiration: str | None
     created_at: str
     updated_at: str
+    number_of_users: int | None = None
+    usage_type: str | None = None
 
     @classmethod
     def from_row(cls, row):

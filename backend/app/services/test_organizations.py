@@ -15,6 +15,37 @@ from backend.app.services.organizations import (
 
 
 class OrganizationServiceTest(unittest.TestCase):
+    def test_usage_metadata_survives_portal_user_creation_and_partial_edits(self):
+        organization = create_organization({"organization_name": "Usage Client", "number_of_users": 12, "usage_type": "both"})
+        create_client_user({"organization_id": organization.id, "name": "Jane", "username": "usage@example.com", "password": "secure-password", "role": "user"})
+        updated = update_organization(organization.id, {"city": "Boston"})
+        self.assertEqual(updated.number_of_users, 12)
+        self.assertEqual(updated.usage_type, "both")
+        self.assertEqual(updated.user_count, 1)
+        self.assertEqual(list_manual_organizations(), [updated])
+        cleared = update_organization(organization.id, {"number_of_users": None, "usage_type": None})
+        self.assertIsNone(cleared.number_of_users)
+        self.assertIsNone(cleared.usage_type)
+
+    def test_usage_metadata_zero_and_classification_can_be_updated(self):
+        organization = create_organization({"organization_name": "Usage Client"})
+        self.assertIsNone(organization.number_of_users)
+        self.assertIsNone(organization.usage_type)
+        for usage in ("prospecting", "bre", "both"):
+            updated = update_organization(organization.id, {"number_of_users": 0, "usage_type": usage})
+            self.assertEqual(get_organization(organization.id), updated)
+            self.assertEqual(updated.number_of_users, 0)
+            self.assertEqual(updated.usage_type, usage)
+
+    def test_usage_schema_rejects_invalid_counts_and_usage(self):
+        from pydantic import ValidationError
+        from backend.app.schemas.organization import OrganizationCreate, OrganizationUpdate
+        for values in ({"number_of_users": -1}, {"number_of_users": 1.5}, {"number_of_users": True}, {"usage_type": "unknown"}):
+            with self.assertRaises(ValidationError):
+                OrganizationCreate(organization_name="Usage Client", **values)
+            with self.assertRaises(ValidationError):
+                OrganizationUpdate(**values)
+
     def setUp(self):
         self.database_patch = temporary_database()
         self.database_patch.start()

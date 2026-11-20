@@ -2,11 +2,9 @@ import { useState } from "react";
 import {
   Box,
   Button,
-  Chip,
   Container,
   Divider,
   IconButton,
-  Paper,
   Stack,
   SvgIcon,
   Tooltip,
@@ -14,11 +12,9 @@ import {
   useTheme,
 } from "@mui/material";
 
-import LeadfeederVisits from "./components/LeadfeederVisits";
 import MarketingListConversionAnalysis from "./components/MarketingListConversionAnalysis";
 import MarketingLists from "./components/MarketingLists";
 import PEClients from "./components/PEClients";
-import { EmptyState } from "./components/UiPrimitives";
 import { API_BASE_URL, getAuthHeaders } from "./auth";
 import { prefetch } from "./apiClient";
 import { SidebarResizeHandle, useResizableSidebar } from "./useResizableSidebar";
@@ -38,24 +34,11 @@ const tabs = {
       "Prospect conversion rates for account marketing lists, rolled up by lead-generation channel and client.",
     parent: "marketing",
   },
-  prospects: {
-    label: "Prospects",
-    icon: "prospects",
-    title: "Prospects",
-    description: "Prospecting pipeline records staged for review.",
-  },
-  leadfeeder: {
-    label: "Leadfeeder Visits",
-    icon: "leadfeeder",
-    title: "Leadfeeder Visits",
-    description: "Website visitor intent records queued for qualification and review.",
-  },
   peClients: {
     label: "PE Clients",
     icon: "clients",
     title: "PE Clients",
-    description: "Private equity client locations, users, and contract expiration dates.",
-    parent: "leadfeeder",
+    description: "Client organizations, PE users, usage, and contract expiration dates.",
   },
 };
 
@@ -64,15 +47,12 @@ const iconPaths = {
   clients: "M7 11a4 4 0 1 1 8 0 4 4 0 0 1-8 0Zm-4 9c.7-3.1 3.9-5 8-5s7.3 1.9 8 5H3Zm14.5-7a3 3 0 1 0 0-6 4.8 4.8 0 0 1 0 6Zm.6 2.1c1.7.6 2.9 1.8 3.4 3.9h-3.2a7 7 0 0 0-1.9-3.5c.6-.2 1.1-.3 1.7-.4Z",
   collapse: "M15.5 5 8.5 12l7 7-1.4 1.4L5.7 12l8.4-8.4L15.5 5Zm4 0-7 7 7 7-1.4 1.4L9.7 12l8.4-8.4L19.5 5Z",
   expand: "m8.5 5 7 7-7 7 1.4 1.4 8.4-8.4-8.4-8.4L8.5 5Zm-4 0 7 7-7 7 1.4 1.4 8.4-8.4-8.4-8.4L4.5 5Z",
-  leadfeeder: "M4 5h16v3H4V5Zm2 5h12v3H6v-3Zm3 5h6v4H9v-4Z",
-  prospects: "M8 11a4 4 0 1 1 8 0 4 4 0 0 1-8 0Zm-4 9c.7-3.1 3.9-5 8-5s7.3 1.9 8 5H4Z",
   signout: "M10 17v-2h4V9h-4V7h6v10h-6Zm-1-1-5-4 5-4v3h6v2H9v3Z",
 };
 
 const prefetchUrls = {
   marketing: `${API_BASE_URL}/marketing-lists`,
   marketingConversion: `${API_BASE_URL}/marketing-lists/conversion-analysis/summary`,
-  leadfeeder: `${API_BASE_URL}/leadfeeder-visits`,
 };
 
 function NavIcon({ name }) {
@@ -80,49 +60,6 @@ function NavIcon({ name }) {
     <SvgIcon fontSize="small" viewBox="0 0 24 24">
       <path d={iconPaths[name]} />
     </SvgIcon>
-  );
-}
-
-function EmptyProspectingPanel({ title }) {
-  return (
-    <Paper
-      elevation={0}
-      sx={{
-        border: "1px solid rgba(0, 51, 108, 0.10)",
-        borderRadius: 2,
-        overflow: "hidden",
-      }}
-    >
-      <Box
-        sx={{
-          alignItems: { xs: "flex-start", sm: "center" },
-          borderBottom: "1px solid rgba(0, 51, 108, 0.10)",
-          display: "flex",
-          flexDirection: { xs: "column", sm: "row" },
-          gap: 1,
-          justifyContent: "space-between",
-          px: { xs: 2, md: 3 },
-          py: 2,
-        }}
-      >
-        <Box>
-          <Typography color="primary.main" sx={{ fontWeight: 800 }} variant="h6">
-            {title}
-          </Typography>
-          <Typography color="text.secondary" variant="body2">
-            No records are available yet.
-          </Typography>
-        </Box>
-        <Chip label="0 total" sx={{ fontWeight: 800 }} />
-      </Box>
-      <EmptyState
-        actionLabel="Refresh"
-        description="Connect the prospecting source to begin reviewing and qualifying records here."
-        icon="database"
-        onAction={() => window.location.reload()}
-        title="No prospect records yet"
-      />
-    </Paper>
   );
 }
 
@@ -289,7 +226,7 @@ export default function ProspectingDashboard({ onLogout }) {
                             : "rgba(255,255,255,0.12)",
                         },
                       }}
-                      title={tab.label}
+                      aria-label={tab.label}
                     >
                       {!sidebarCollapsed && tab.label}
                     </Button>
@@ -334,8 +271,8 @@ export default function ProspectingDashboard({ onLogout }) {
 
         <Box component="main" sx={{ py: { xs: 3, md: 5 } }}>
           <Container
-            maxWidth={["marketing", "marketingConversion", "leadfeeder", "peClients"].includes(activeTab) ? false : "lg"}
-            sx={{ px: { xs: 2, md: ["marketing", "marketingConversion", "leadfeeder", "peClients"].includes(activeTab) ? 3 : 4 } }}
+            maxWidth={false}
+            sx={{ px: { xs: 2, md: 3 } }}
           >
             <Stack spacing={3}>
               <Box>
@@ -364,8 +301,6 @@ export default function ProspectingDashboard({ onLogout }) {
 
               {activeTab === "marketing" && <MarketingLists />}
               {activeTab === "marketingConversion" && <MarketingListConversionAnalysis />}
-              {activeTab === "prospects" && <EmptyProspectingPanel title="Prospects" />}
-              {activeTab === "leadfeeder" && <LeadfeederVisits />}
               {activeTab === "peClients" && <PEClients />}
             </Stack>
           </Container>

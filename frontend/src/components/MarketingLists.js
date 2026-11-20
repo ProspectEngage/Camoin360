@@ -479,11 +479,12 @@ export default function MarketingLists() {
             </Typography>
           </Box>
           <TextField
+            fullWidth
             inputProps={{ "aria-label": "Search marketing lists" }}
             label="Search marketing lists"
             onChange={(event) => updateSearch(event.target.value)}
             size="medium"
-            sx={{ ...brandTextFieldSx, maxWidth: 960, width: "100%" }}
+            sx={{ ...brandTextFieldSx, width: "100%" }}
             value={searchQuery}
           />
         </Box>
@@ -496,14 +497,14 @@ export default function MarketingLists() {
             justifyContent: "space-between",
           }}
         >
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ flex: 1, minWidth: 0 }}>
             <TextField
               InputLabelProps={{ shrink: true }}
               inputProps={{ "aria-label": "Created from date" }}
               label="Created From"
               onChange={(event) => updateCreatedFrom(event.target.value)}
               size="medium"
-              sx={{ ...brandTextFieldSx, minWidth: { xs: "100%", sm: 220 } }}
+              sx={{ ...brandTextFieldSx, flex: 1, minWidth: 0, width: "100%" }}
               type="date"
               value={draftCreatedFrom}
             />
@@ -513,7 +514,7 @@ export default function MarketingLists() {
               label="Created To"
               onChange={(event) => updateCreatedTo(event.target.value)}
               size="medium"
-              sx={{ ...brandTextFieldSx, minWidth: { xs: "100%", sm: 220 } }}
+              sx={{ ...brandTextFieldSx, flex: 1, minWidth: 0, width: "100%" }}
               type="date"
               value={draftCreatedTo}
             />

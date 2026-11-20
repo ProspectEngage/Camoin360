@@ -25,14 +25,18 @@ const input = async (label, value) => {
   const node = Array.from(container.querySelectorAll('input')).find((el) => el.id && container.querySelector(`label[for="${el.id}"]`)?.textContent === label);
   expect(node).toBeTruthy(); await act(async () => { Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(node, value); node.dispatchEvent(new Event('input', { bubbles: true })); });
 };
-const chooseCountry = async (value) => {
-  const select = container.querySelector('select');
-  await act(async () => { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); });
+const dropdown = (label) => Array.from(container.querySelectorAll('[role="combobox"]')).find((node) => node.getAttribute('aria-labelledby')?.split(' ').some((id) => document.getElementById(id)?.textContent === label));
+const openDropdown = async (label) => {
+  const node = dropdown(label); expect(node).toBeTruthy();
+  await act(async () => node.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
 };
-const chooseState = async (value) => {
-  const select = container.querySelectorAll('select')[1];
-  await act(async () => { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); });
+const chooseOption = async (label, text) => {
+  await openDropdown(label);
+  const option = Array.from(document.querySelectorAll('[role="option"]')).find((node) => node.textContent === text);
+  expect(option).toBeTruthy(); await act(async () => option.click());
 };
+const chooseCountry = (value) => chooseOption('Country', value || 'All countries');
+const chooseState = (value) => chooseOption('State / Province', ({ MA: 'Massachusetts', ON: 'Ontario' })[value] || value);
 const chooseField = async (label) => {
   await act(async () => container.querySelector('[aria-labelledby="manual-fields-label"]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
   const node = Array.from(document.querySelectorAll('[role="option"]')).find((el) => el.textContent === label);
@@ -54,7 +58,7 @@ it('shows the Account workspace without credit cards or automatic data fetching'
 it('uses explicit bounded search, canonical missing fields, combined location and details', async () => {
   await render(); await input('Search Accounts', 'Acme'); await chooseCountry('United States'); await click('Search Dynamics');
   expect(getCached.mock.calls[0][1]).toEqual(expect.objectContaining({ headers: { Authorization: 'Bearer test' }, params: expect.objectContaining({ enrichment_fields: true, search: 'Acme', country: 'United States', page: 0, page_size: 25, needs_attention: true }) }));
-  expect(Array.from(container.querySelectorAll('thead th')).map((node) => node.textContent)).toEqual(['', 'Account', 'Location', 'Missing Information', 'Completeness', 'Details']);
+  expect(Array.from(container.querySelectorAll('thead th')).map((node) => node.textContent)).toEqual(['', 'Account', 'Location', 'Missing Information', 'Completeness', 'Health Score', 'Details']);
   expect(container.textContent).toContain('Boston, MA, United States'); expect(container.textContent).toContain('Postal Code, NAICS'); expect(container.textContent).toContain('100%');
   expect(container.textContent).not.toContain('new_employees'); await click('Details');
   expect(document.body.textContent).toContain('Employees'); expect(document.body.textContent).toContain('Postal Code'); expect(document.body.textContent).toContain('NAICS');
@@ -107,6 +111,24 @@ it('supports compact location/sector filters', async () => {
   expect(getCached.mock.calls[0][1].params).toEqual(expect.objectContaining({ states: 'MA', cities: 'Boston', sector: 'Technology' }));
 });
 
+it('filters by Data Health classification and preserves it on pagination', async () => {
+  getCached.mockResolvedValue({ data: { data: [account('a', { cr73c_datahealthscore: 0 })], has_more: true } });
+  await render();
+  await openDropdown('Data Health');
+  expect(Array.from(document.querySelectorAll('[role="option"]')).map((option) => option.textContent)).toEqual(['All', 'Poor', 'Needs Enrichment', 'Good', 'Excellent']);
+  const option = Array.from(document.querySelectorAll('[role="option"]')).find((node) => node.textContent === 'Needs Enrichment');
+  await act(async () => option.click());
+  await click('Search Dynamics');
+  expect(getCached.mock.calls[0][1].params).toEqual(expect.objectContaining({ data_health: 'needs_enrichment' }));
+  expect(getCached.mock.calls[0][1].params).not.toHaveProperty('health_score_min');
+  expect(container.textContent).toContain('0 / 100');
+  await click('Next');
+  expect(getCached.mock.calls[1][1].params).toEqual(expect.objectContaining({ data_health: 'needs_enrichment', page: 1 }));
+  await chooseOption('Data Health', 'All');
+  await click('Search Dynamics');
+  expect(getCached.mock.calls[2][1].params).toEqual(expect.objectContaining({ data_health: 'all', page: 0 }));
+});
+
 it('sends the chosen canonical Missing Information filter without a broad eligibility query', async () => {
   await render();
   await act(async () => container.querySelector('[role="combobox"]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })));
@@ -119,23 +141,30 @@ it('sends the chosen canonical Missing Information filter without a broad eligib
 
 it('enables State / Province only for United States or Canada and clears it on country changes', async () => {
   await render();
-  const stateInput = () => container.querySelectorAll('select')[1];
-  expect(stateInput().disabled).toBe(true);
-  expect(container.querySelector('select').textContent).toContain('All countries');
+  const stateInput = () => dropdown('State / Province');
+  expect(stateInput().getAttribute('aria-disabled')).toBe('true');
+  expect(dropdown('Country').textContent).toContain('All countries');
   expect(getCached).not.toHaveBeenCalled();
-  await chooseCountry('United States'); expect(stateInput().disabled).toBe(false);
-  expect(stateInput().textContent).toContain('Massachusetts'); expect(stateInput().textContent).not.toContain('Ontario');
-  expect(stateInput().options).toHaveLength(52);
+  await chooseCountry('United States'); expect(stateInput().getAttribute('aria-disabled')).not.toBe('true');
+  await openDropdown('State / Province');
+  expect(document.querySelectorAll('[role="option"]')).toHaveLength(52);
+  expect(document.querySelector('[role="listbox"]').textContent).toContain('Massachusetts');
+  expect(document.querySelector('[role="listbox"]').textContent).not.toContain('Ontario');
+  await act(async () => document.querySelector('.MuiBackdrop-root').click());
   await chooseState('MA'); await click('Search Dynamics');
   expect(getCached.mock.calls[0][1].params).toEqual(expect.objectContaining({ country: 'United States', states: 'MA' }));
-  await chooseCountry('Canada'); expect(stateInput().disabled).toBe(false); expect(stateInput().value).toBe('');
-  expect(stateInput().textContent).toContain('Ontario'); expect(stateInput().textContent).not.toContain('Massachusetts');
-  expect(stateInput().options).toHaveLength(14);
+  await chooseCountry('Canada'); expect(stateInput().textContent).toContain('All states / provinces');
+  await openDropdown('State / Province');
+  expect(document.querySelectorAll('[role="option"]')).toHaveLength(14);
+  expect(document.querySelector('[role="listbox"]').textContent).toContain('Ontario');
+  expect(document.querySelector('[role="listbox"]').textContent).not.toContain('Massachusetts');
+  await act(async () => document.querySelector('.MuiBackdrop-root').click());
   await chooseState('ON'); await click('Search Dynamics');
   expect(getCached.mock.calls[1][1].params).toEqual(expect.objectContaining({ country: 'Canada', states: 'ON' }));
-  await chooseCountry('France'); expect(stateInput().disabled).toBe(true); expect(stateInput().value).toBe('');
+  await chooseCountry('France'); expect(stateInput().getAttribute('aria-disabled')).toBe('true');
+  expect(stateInput().textContent).toContain('All states / provinces');
   await click('Search Dynamics'); expect(getCached.mock.calls[2][1].params).toEqual(expect.objectContaining({ country: 'France', states: '' }));
-  await chooseCountry(''); expect(stateInput().disabled).toBe(true);
+  await chooseCountry(''); expect(stateInput().getAttribute('aria-disabled')).toBe('true');
 });
 
 it('delegates a rejected session to authentication without showing a search failure', async () => {

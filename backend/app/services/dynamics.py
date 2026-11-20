@@ -41,8 +41,6 @@ DATA_QUALITY_CACHE_TTL_SECONDS = 300
 SUMMARY_CACHE_TTL_SECONDS = 600
 DATA_QUALITY_REQUEST_TIMEOUT_SECONDS = 300
 DATA_QUALITY_SYNC_STALE_SECONDS = int(os.getenv("DATA_QUALITY_SYNC_STALE_SECONDS", "3600"))
-DUPLICATE_ACCOUNT_DEFAULT_LIMIT = 1000
-DUPLICATE_ACCOUNT_MAX_LIMIT = 1000
 MARKETING_LIST_DEFAULT_LIMIT = int(os.getenv("MARKETING_LIST_DEFAULT_LIMIT", "500"))
 MARKETING_LIST_CONVERSION_DEFAULT_LIMIT = int(os.getenv("MARKETING_LIST_CONVERSION_DEFAULT_LIMIT", "100"))
 MARKETING_LIST_CONVERSION_MAX_LIMIT = int(os.getenv("MARKETING_LIST_CONVERSION_MAX_LIMIT", "500"))
@@ -54,9 +52,6 @@ MARKETING_LIST_CONVERSION_DEFAULT_YEARS = tuple(
 MARKETING_LIST_REQUEST_TIMEOUT_SECONDS = 60
 MARKETING_LIST_CLIENT_ACCOUNT_SCAN_LIMIT = 25
 MARKETING_LIST_CLIENT_ENRICHMENT_LIMIT = int(os.getenv("MARKETING_LIST_CLIENT_ENRICHMENT_LIMIT", "50"))
-LEADFEEDER_VISIT_DEFAULT_LIMIT = 200
-LEADFEEDER_VISIT_MAX_LIMIT = 1000
-LEADFEEDER_VISIT_REQUEST_TIMEOUT_SECONDS = 60
 PE_CLIENT_DEFAULT_LIMIT = 1000
 PE_CLIENT_MAX_LIMIT = 5000
 PE_CLIENT_REQUEST_TIMEOUT_SECONDS = 60
@@ -71,14 +66,14 @@ PE_QUALIFIED_LEAD_INTERNAL_CLIENTS = {
 MARKETING_LIST_ACCOUNT_WEBSITE_VISIT_RELATIONSHIP_CANDIDATES = (
     "cr73c_lfapp_websitevisit",
 )
+
 WEBSITE_VISIT_CLIENT_RELATIONSHIP_CANDIDATES = ("new_Client",)
 _DATA_QUALITY_CACHE = {"expires_at": 0, "data": None, "limit": 0}
 _SUMMARY_CACHE = {"expires_at": 0, "data": None}
 _MARKETING_LIST_CAMPAIGN_NAVIGATION_CACHE = {"loaded": False, "value": None}
 _MARKETING_LIST_CLIENT_LOOKUP_CACHE = {"loaded": False, "value": None}
+_MARKETING_LIST_PROJECT_CLIENT_CACHE = {"loaded": False, "value": (None, None, None)}
 _ACCOUNT_WEBSITE_VISIT_NAVIGATION_CACHE = {"loaded": False, "value": None}
-_WEBSITE_VISIT_CLIENT_NAVIGATION_CACHE = {"loaded": False, "value": None}
-_WEBSITE_VISIT_ACCOUNT_NAVIGATION_CACHE = {"loaded": False, "value": None}
 _DATA_QUALITY_REFRESH_TASK = None
 MARKETING_METRICS_CACHE_TTL_SECONDS = 600
 MARKETING_METRICS_REQUEST_TIMEOUT_SECONDS = 120
@@ -580,6 +575,7 @@ def _dynamics_data_quality_filter(
     *, search: str = "", sector: str = "all", missing_field: str = "all",
     states: list[str] | None = None, country: str = "all", cities: list[str] | None = None,
     needs_attention: bool = False, column_filters: dict[str, str] | None = None,
+    data_health: str = "all",
     enrichment_fields: bool = False, missing_fields: list[str] | None = None, missing_operator: str = "and",
 ) -> str:
     fields = tuple((field, field) for field in MANUAL_ENRICHMENT_FIELDS) if enrichment_fields else DATA_QUALITY_FIELDS
@@ -592,7 +588,13 @@ def _dynamics_data_quality_filter(
             return f"{field} eq null"
         return f"({field} eq null or {field} eq '')"
 
+    health_choices = {"poor": 732660000, "needs_enrichment": 732660001,
+                      "good": 732660002, "excellent": 732660003}
+    if data_health != "all" and data_health not in health_choices:
+        raise ValueError("Unsupported Data Health classification.")
     clauses = []
+    if data_health != "all":
+        clauses.append(f"cr73c_datahealth eq {health_choices[data_health]}")
     searchable = [field for field, _ in fields if field not in {"new_employees", "numberofemployees"}]
     if enrichment_fields:
         searchable = ["name", "new_sector", "new_subsector", *searchable]
@@ -670,7 +672,7 @@ async def search_accounts_data_quality_from_dynamics(
     enrichment_mode = filters.get("enrichment_fields", False)
     where = _dynamics_data_quality_filter(**filters)
     fields = MANUAL_ENRICHMENT_FIELDS if enrichment_mode else tuple(field for field, _ in DATA_QUALITY_FIELDS)
-    select = "accountid,name,new_sector,new_subsector," + ",".join(fields) if enrichment_mode else "accountid," + ",".join(fields)
+    select = "accountid,name,new_sector,new_subsector,cr73c_datahealthscore," + ",".join(fields) if enrichment_mode else "accountid," + ",".join(fields)
     sort_field = sort_key if sort_key in DATA_QUALITY_FILTERABLE_COLUMNS and sort_key not in {"missing_fields_summary", "data_quality_score", "new_employees"} else "name"
     direction = "desc" if sort_direction == "desc" else "asc"
     url = f"{API_URL}/accounts?$select={select}&$orderby={sort_field} {direction},accountid asc"
@@ -720,7 +722,7 @@ async def search_accounts_data_quality_from_dynamics(
     if enrichment_mode:
         prepared = []
         for account in selected:
-            row = {field: account.get(field) for field in ("accountid", "name", "new_sector", "new_subsector", *MANUAL_ENRICHMENT_FIELDS)}
+            row = {field: account.get(field) for field in ("accountid", "name", "new_sector", "new_subsector", "cr73c_datahealthscore", *MANUAL_ENRICHMENT_FIELDS)}
             row["missing_field_keys"] = [field for field in MANUAL_ENRICHMENT_FIELDS if _is_blank(row.get(field))]
             row["data_quality_score"] = sum(20 for field in ("websiteurl", "telephone1", "description", "numberofemployees") if not _is_blank(row.get(field))) + (20 if all(not _is_blank(row.get(field)) for field in DATA_QUALITY_LOCATION_FIELDS) else 0)
             prepared.append(row)
@@ -962,67 +964,6 @@ def start_data_quality_refresh():
     _DATA_QUALITY_REFRESH_TASK = asyncio.create_task(refresh())
 
 
-async def get_duplicate_account_records(limit: int = DUPLICATE_ACCOUNT_DEFAULT_LIMIT):
-    account_limit = max(1, min(limit, DUPLICATE_ACCOUNT_MAX_LIMIT))
-    token = await get_access_token()
-
-    url = (
-        f"{API_URL}/accounts?"
-        "$select=accountid,name,websiteurl,emailaddress1,telephone1,address1_line1,address1_city,address1_stateorprovince,address1_postalcode,address1_country,new_sector,new_datasource,new_employees,description,createdon&"
-        "$orderby=name asc&"
-        f"$top={account_limit}"
-    )
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "OData-Version": "4.0",
-        "Prefer": f"odata.maxpagesize={account_limit}",
-    }
-
-    accounts = []
-    next_url = url
-    timeout = httpx.Timeout(DATA_QUALITY_REQUEST_TIMEOUT_SECONDS)
-
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            while next_url and len(accounts) < account_limit:
-                response = await client.get(next_url, headers=headers)
-
-                if response.status_code != 200:
-                    raise Exception(f"Dynamics GET error: {response.text}")
-
-                payload = response.json()
-                accounts.extend(payload.get("value", []))
-                next_url = payload.get("@odata.nextLink")
-    except httpx.TimeoutException as exc:
-        raise Exception(
-            f"Dynamics request timed out after {DATA_QUALITY_REQUEST_TIMEOUT_SECONDS} seconds while loading duplicate account records"
-        ) from exc
-
-    return accounts[:account_limit]
-
-
-async def delete_account(account_id: str):
-    token = await get_access_token()
-    url = f"{API_URL}/accounts({account_id})"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "OData-Version": "4.0",
-    }
-
-    async with httpx.AsyncClient() as client:
-        response = await client.delete(url, headers=headers)
-
-    if response.status_code not in [200, 204]:
-        raise Exception(f"Dynamics DELETE error: {response.text}")
-
-    invalidate_account_read_caches()
-
-    return {"status": "deleted", "account_id": account_id}
-
-
 async def delete_marketing_list(list_id: str):
     token = await get_access_token()
     url = f"{API_URL}/lists({list_id})"
@@ -1138,18 +1079,36 @@ def normalize_marketing_list_record(
     record: dict,
     campaign_relationship_name: str | None = None,
     client_lookup_field: str | None = None,
+    project_relationship_name: str | None = None,
+    project_client_relationship_name: str | None = None,
+    campaign_project_relationship_name: str | None = None,
 ):
     created_by = record.get("createdby", {}) if isinstance(record.get("createdby"), dict) else {}
     campaign = ""
     if campaign_relationship_name:
         campaign = get_related_record_value(record, campaign_relationship_name, ("name",))
 
+    project = record.get(project_relationship_name) if project_relationship_name else None
+    project_client_name = ""
+    if isinstance(project, dict):
+        if project_client_relationship_name:
+            project_client_name = get_related_record_value(project, project_client_relationship_name, ("name",))
+        project_client_name = project_client_name or get_lookup_display_value(project, "_new_client_value")
+    campaign_client_name = ""
+    campaign_record = record.get(campaign_relationship_name) if campaign_relationship_name else None
+    campaign_project = campaign_record.get(campaign_project_relationship_name) if isinstance(campaign_record, dict) and campaign_project_relationship_name else None
+    if isinstance(campaign_project, dict):
+        if project_client_relationship_name:
+            campaign_client_name = get_related_record_value(campaign_project, project_client_relationship_name, ("name",))
+        campaign_client_name = campaign_client_name or get_lookup_display_value(campaign_project, "_new_client_value")
     dynamic_client_name = get_lookup_display_value(record, client_lookup_field) if client_lookup_field else ""
     client_name = (
         get_related_record_value(record, "new_client", ("name",))
         or get_related_record_value(record, "new_clientid", ("name",))
         or get_related_record_value(record, "new_ClientId", ("name",))
         or dynamic_client_name
+        or project_client_name
+        or campaign_client_name
         or get_lookup_display_value(record, "_new_client_value")
         or get_lookup_display_value(record, "_new_clientid_value")
         or get_first_present_record_value(record, ("new_client", "_new_client_value", "_new_clientid_value"))
@@ -1247,6 +1206,45 @@ async def get_list_client_lookup_field(client: httpx.AsyncClient, headers: dict)
     return client_lookup_field
 
 
+async def get_list_project_client_navigation_properties(client: httpx.AsyncClient, headers: dict):
+    """Resolve Marketing List and Campaign -> Project -> Client once per backend process."""
+    if _MARKETING_LIST_PROJECT_CLIENT_CACHE["loaded"]:
+        return _MARKETING_LIST_PROJECT_CLIENT_CACHE["value"]
+    select = "$select=ReferencingAttribute,ReferencingEntityNavigationPropertyName,ReferencedEntity"
+    response = await client.get(
+        f"{API_URL}/EntityDefinitions(LogicalName='list')/ManyToOneRelationships?{select}&$filter=ReferencedEntity%20eq%20'new_project'",
+        headers=headers,
+    )
+    if response.status_code != 200:
+        raise Exception("Unable to resolve Marketing List Project relationship.")
+    project_nav = next((row.get("ReferencingEntityNavigationPropertyName")
+                        for row in response.json().get("value", [])
+                        if row.get("ReferencedEntity") == "new_project" and row.get("ReferencingAttribute") == "new_projectid"), None)
+    response = await client.get(
+        f"{API_URL}/EntityDefinitions(LogicalName='campaign')/ManyToOneRelationships?{select}&$filter=ReferencedEntity%20eq%20'new_project'",
+        headers=headers,
+    )
+    if response.status_code != 200:
+        raise Exception("Unable to resolve Campaign Project relationship.")
+    campaign_project_nav = next((row.get("ReferencingEntityNavigationPropertyName")
+                                 for row in response.json().get("value", [])
+                                 if row.get("ReferencedEntity") == "new_project" and row.get("ReferencingAttribute") == "new_project"), None)
+    client_nav = None
+    if project_nav or campaign_project_nav:
+        response = await client.get(
+            f"{API_URL}/EntityDefinitions(LogicalName='new_project')/ManyToOneRelationships?{select}&$filter=ReferencingAttribute%20eq%20'new_client'",
+            headers=headers,
+        )
+        if response.status_code != 200:
+            raise Exception("Unable to resolve Project Client relationship.")
+        client_nav = next((row.get("ReferencingEntityNavigationPropertyName")
+                           for row in response.json().get("value", [])
+                           if row.get("ReferencingAttribute") == "new_client" and row.get("ReferencedEntity") == "account"), None)
+    value = (project_nav, client_nav, campaign_project_nav)
+    _MARKETING_LIST_PROJECT_CLIENT_CACHE.update(loaded=True, value=value)
+    return value
+
+
 async def get_account_website_visit_navigation_property(client: httpx.AsyncClient, headers: dict):
     if _ACCOUNT_WEBSITE_VISIT_NAVIGATION_CACHE["loaded"]:
         return _ACCOUNT_WEBSITE_VISIT_NAVIGATION_CACHE["value"]
@@ -1287,88 +1285,24 @@ async def get_account_website_visit_navigation_property(client: httpx.AsyncClien
     return account_website_visit_navigation_property
 
 
-async def get_website_visit_client_navigation_property(client: httpx.AsyncClient, headers: dict):
-    if _WEBSITE_VISIT_CLIENT_NAVIGATION_CACHE["loaded"]:
-        return _WEBSITE_VISIT_CLIENT_NAVIGATION_CACHE["value"]
-
-    metadata_url = (
-        f"{API_URL}/EntityDefinitions(LogicalName='lfapp_websitevisit')/ManyToOneRelationships?"
-        "$select=ReferencingAttribute,ReferencingEntityNavigationPropertyName,ReferencedEntity,SchemaName"
-    )
-
-    response = await client.get(metadata_url, headers=headers)
-    website_visit_client_navigation_property = None
-
-    if response.status_code == 200:
-        relationships = response.json().get("value", [])
-        for relationship in relationships:
-            referencing_attribute = str(relationship.get("ReferencingAttribute") or "").lower()
-            referenced_entity = str(relationship.get("ReferencedEntity") or "").lower()
-            navigation_property = relationship.get("ReferencingEntityNavigationPropertyName")
-
-            if navigation_property and referencing_attribute == "new_client" and referenced_entity == "account":
-                website_visit_client_navigation_property = navigation_property
-                break
-
-        if not website_visit_client_navigation_property:
-            for relationship in relationships:
-                navigation_property = relationship.get("ReferencingEntityNavigationPropertyName")
-                if navigation_property in WEBSITE_VISIT_CLIENT_RELATIONSHIP_CANDIDATES:
-                    website_visit_client_navigation_property = navigation_property
-                    break
-
-    _WEBSITE_VISIT_CLIENT_NAVIGATION_CACHE["loaded"] = True
-    _WEBSITE_VISIT_CLIENT_NAVIGATION_CACHE["value"] = website_visit_client_navigation_property
-
-    return website_visit_client_navigation_property
-
-
-async def get_website_visit_account_navigation_property(client: httpx.AsyncClient, headers: dict):
-    if _WEBSITE_VISIT_ACCOUNT_NAVIGATION_CACHE["loaded"]:
-        return _WEBSITE_VISIT_ACCOUNT_NAVIGATION_CACHE["value"]
-
-    metadata_url = (
-        f"{API_URL}/EntityDefinitions(LogicalName='lfapp_websitevisit')/ManyToOneRelationships?"
-        "$select=ReferencingAttribute,ReferencingEntityNavigationPropertyName,ReferencedEntity,SchemaName"
-    )
-
-    response = await client.get(metadata_url, headers=headers)
-    website_visit_account_navigation_property = None
-
-    if response.status_code == 200:
-        relationships = response.json().get("value", [])
-        for relationship in relationships:
-            referencing_attribute = str(relationship.get("ReferencingAttribute") or "").lower()
-            referenced_entity = str(relationship.get("ReferencedEntity") or "").lower()
-            navigation_property = relationship.get("ReferencingEntityNavigationPropertyName")
-
-            if navigation_property and referencing_attribute == "lfapp_account" and referenced_entity == "account":
-                website_visit_account_navigation_property = navigation_property
-                break
-
-        if not website_visit_account_navigation_property:
-            for relationship in relationships:
-                navigation_property = relationship.get("ReferencingEntityNavigationPropertyName")
-                if navigation_property and "account" in navigation_property.lower():
-                    website_visit_account_navigation_property = navigation_property
-                    break
-
-    _WEBSITE_VISIT_ACCOUNT_NAVIGATION_CACHE["loaded"] = True
-    _WEBSITE_VISIT_ACCOUNT_NAVIGATION_CACHE["value"] = website_visit_account_navigation_property
-
-    return website_visit_account_navigation_property
-
-
 def build_marketing_lists_url(
     limit: int,
     campaign_navigation_property: str | None = None,
     client_lookup_field: str | None = None,
     created_from: str | None = None,
     created_to: str | None = None,
+    project_relationship_name: str | None = None,
+    project_client_relationship_name: str | None = None,
+    campaign_project_relationship_name: str | None = None,
 ):
     expand_parts = ["createdby($select=fullname)"]
     if campaign_navigation_property:
-        expand_parts.append(f"{campaign_navigation_property}($select=name)")
+        campaign_expand = f"{campaign_navigation_property}($select=name"
+        if campaign_project_relationship_name and project_client_relationship_name:
+            campaign_expand += f";$expand={campaign_project_relationship_name}($select=_new_client_value;$expand={project_client_relationship_name}($select=name))"
+        expand_parts.append(campaign_expand + ")")
+    if project_relationship_name and project_client_relationship_name:
+        expand_parts.append(f"{project_relationship_name}($select=_new_client_value;$expand={project_client_relationship_name}($select=name))")
     select_fields = [
         "listid",
         "listname",
@@ -1525,12 +1459,14 @@ async def get_marketing_lists(
         async with httpx.AsyncClient(timeout=timeout) as client:
             campaign_navigation_property = await get_list_campaign_navigation_property(client, headers)
             client_lookup_field = await get_list_client_lookup_field(client, headers)
+            project_nav, project_client_nav, campaign_project_nav = await get_list_project_client_navigation_properties(client, headers)
             next_url = build_marketing_lists_url(
                 limit,
                 campaign_navigation_property,
                 client_lookup_field,
                 created_from,
                 created_to,
+                project_nav, project_client_nav, campaign_project_nav,
             )
 
             while next_url and len(marketing_lists) < limit:
@@ -1547,6 +1483,7 @@ async def get_marketing_lists(
                             None,
                             created_from,
                             created_to,
+                            project_nav, project_client_nav, campaign_project_nav,
                         )
                         continue
 
@@ -1560,6 +1497,7 @@ async def get_marketing_lists(
                             client_lookup_field,
                             created_from,
                             created_to,
+                            project_nav, project_client_nav, campaign_project_nav,
                         )
                         continue
 
@@ -1572,6 +1510,7 @@ async def get_marketing_lists(
                         record,
                         campaign_navigation_property,
                         client_lookup_field,
+                        project_nav, project_client_nav, campaign_project_nav,
                     )
                     for record in payload.get("value", [])
                 )
@@ -1582,147 +1521,6 @@ async def get_marketing_lists(
         ) from exc
 
     return marketing_lists[:limit]
-
-
-async def get_leadfeeder_visits(limit: int = LEADFEEDER_VISIT_DEFAULT_LIMIT):
-    visit_limit = max(1, min(limit, LEADFEEDER_VISIT_MAX_LIMIT))
-    token = await get_access_token()
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Accept": "application/json",
-        "OData-Version": "4.0",
-        "Prefer": f"odata.maxpagesize={visit_limit}",
-    }
-
-    visits = []
-    timeout = httpx.Timeout(LEADFEEDER_VISIT_REQUEST_TIMEOUT_SECONDS)
-
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            website_visit_client_relationship_name = await get_website_visit_client_navigation_property(client, headers)
-            website_visit_account_relationship_name = await get_website_visit_account_navigation_property(client, headers)
-
-            expand_parts = []
-            if website_visit_client_relationship_name:
-                expand_parts.append(f"{website_visit_client_relationship_name}($select=name)")
-            if website_visit_account_relationship_name:
-                expand_parts.append(
-                    f"{website_visit_account_relationship_name}($select=name,websiteurl,address1_country,address1_stateorprovince,address1_city,new_sector,telephone1,emailaddress1)"
-                )
-
-            next_url = f"{API_URL}/lfapp_websitevisits?$select=lfapp_websitevisitid,createdon,_lfapp_account_value,_new_client_value"
-            if expand_parts:
-                next_url += f"&$expand={','.join(expand_parts)}"
-            next_url += f"&$orderby=createdon desc&$top={visit_limit}"
-
-            while next_url and len(visits) < visit_limit:
-                response = await client.get(next_url, headers=headers)
-
-                if response.status_code != 200:
-                    raise Exception(f"Dynamics GET error: {response.text}")
-
-                payload = response.json()
-                for record in payload.get("value", []):
-                    visits.append(
-                        {
-                            "visit_id": record.get("lfapp_websitevisitid"),
-                            "createdon": record.get("createdon"),
-                            "account_name": (
-                                get_related_record_value(
-                                    record,
-                                    website_visit_account_relationship_name,
-                                    ("name",),
-                                )
-                                if website_visit_account_relationship_name
-                                else ""
-                            )
-                            or get_lookup_display_value(record, "_lfapp_account_value")
-                            or "",
-                            "account_id": record.get("_lfapp_account_value") or "",
-                            "website": (
-                                get_related_record_value(
-                                    record,
-                                    website_visit_account_relationship_name,
-                                    ("websiteurl",),
-                                )
-                                if website_visit_account_relationship_name
-                                else ""
-                            ),
-                            "country": (
-                                get_related_record_value(
-                                    record,
-                                    website_visit_account_relationship_name,
-                                    ("address1_country",),
-                                )
-                                if website_visit_account_relationship_name
-                                else ""
-                            ),
-                            "state": (
-                                get_related_record_value(
-                                    record,
-                                    website_visit_account_relationship_name,
-                                    ("address1_stateorprovince",),
-                                )
-                                if website_visit_account_relationship_name
-                                else ""
-                            ),
-                            "city": (
-                                get_related_record_value(
-                                    record,
-                                    website_visit_account_relationship_name,
-                                    ("address1_city",),
-                                )
-                                if website_visit_account_relationship_name
-                                else ""
-                            ),
-                            "industry": (
-                                get_related_record_value(
-                                    record,
-                                    website_visit_account_relationship_name,
-                                    ("new_sector",),
-                                )
-                                if website_visit_account_relationship_name
-                                else ""
-                            ),
-                            "phone": (
-                                get_related_record_value(
-                                    record,
-                                    website_visit_account_relationship_name,
-                                    ("telephone1",),
-                                )
-                                if website_visit_account_relationship_name
-                                else ""
-                            ),
-                            "email": (
-                                get_related_record_value(
-                                    record,
-                                    website_visit_account_relationship_name,
-                                    ("emailaddress1",),
-                                )
-                                if website_visit_account_relationship_name
-                                else ""
-                            ),
-                            "client_name": (
-                                get_related_record_value(
-                                    record,
-                                    website_visit_client_relationship_name,
-                                    ("name",),
-                                )
-                                if website_visit_client_relationship_name
-                                else ""
-                            )
-                            or get_lookup_display_value(record, "_new_client_value")
-                            or "",
-                        }
-                    )
-
-                next_url = payload.get("@odata.nextLink")
-    except httpx.TimeoutException as exc:
-        raise Exception(
-            f"Dynamics request timed out after {LEADFEEDER_VISIT_REQUEST_TIMEOUT_SECONDS} seconds while loading Leadfeeder visits"
-        ) from exc
-
-    return visits[:visit_limit]
 
 
 async def _get_marketing_list_relationship_members(list_id: str, relationship: str, select_fields: str):

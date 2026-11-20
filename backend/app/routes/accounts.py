@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 from .auth import require_user
 from ..services.cache import AsyncStaleCache
 from ..services.account_enrichment_history import automatic_enrichment_request
-from ..services.duplicate_accounts import find_duplicate_account_groups
 from ..services.organizations import increment_organization_user_count
 from ..services.dynamics import (
     get_account_sector_counts,
@@ -20,13 +19,10 @@ from ..services.dynamics import (
     get_accounts_data_quality,
     get_accounts_data_quality_page,
     get_accounts_needing_enrichment,
-    get_duplicate_account_records,
-    delete_account,
     delete_marketing_list,
     get_marketing_list_conversion_analysis,
     get_marketing_lists,
     get_marketing_list_members,
-    get_leadfeeder_visits,
     get_pe_clients,
     get_pe_qualified_leads,
     create_pe_client,
@@ -45,9 +41,7 @@ from ..services.dynamics import (
 router = APIRouter()
 read_cache = AsyncStaleCache()
 DATA_QUALITY_TTL_SECONDS = 300
-DUPLICATE_TTL_SECONDS = 300
 MARKETING_LIST_TTL_SECONDS = 300
-LEADFEEDER_TTL_SECONDS = 180
 SUMMARY_TTL_SECONDS = 900
 STALE_GRACE_SECONDS = 1800
 
@@ -55,7 +49,6 @@ STALE_GRACE_SECONDS = 1800
 def invalidate_account_endpoint_caches():
     invalidate_account_read_caches()
     read_cache.invalidate("data-quality:")
-    read_cache.invalidate("duplicates:")
     read_cache.invalidate("summary")
 
 
@@ -202,6 +195,7 @@ async def fetch_accounts_data_quality(
 async def search_accounts_data_quality(
     page: int = Query(default=0, ge=0),
     enrichment_fields: bool = Query(default=False),
+    data_health: str = Query(default="all", pattern="^(all|poor|needs_enrichment|good|excellent)$"),
     page_size: int = Query(default=25, ge=1, le=250),
     search: str = Query(default=""),
     sector: str = Query(default="all"),
@@ -226,118 +220,13 @@ async def search_accounts_data_quality(
             missing_field=missing_field, missing_fields=[value for value in missing_fields.split("|") if value], missing_operator=missing_operator, states=[value for value in states.split("|") if value],
             country=country, cities=[value for value in cities.split("|") if value],
             needs_attention=needs_attention, column_filters=parsed_filters,
+            data_health=data_health,
             sort_key=sort_key, sort_direction=sort_direction, enrichment_fields=enrichment_fields,
         )
     except (ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Unable to search Dynamics accounts.") from exc
-
-
-async def get_duplicate_account_response(limit: int):
-    async def load_response():
-        accounts = await get_duplicate_account_records(limit)
-        duplicate_groups = find_duplicate_account_groups(accounts)
-
-        return {
-            "account_count": len(accounts),
-            "duplicate_group_count": len(duplicate_groups),
-            "limit": limit,
-            "groups": duplicate_groups,
-        }
-
-    return await read_cache.get(
-        f"duplicates:{limit}",
-        load_response,
-        ttl_seconds=DUPLICATE_TTL_SECONDS,
-        stale_seconds=STALE_GRACE_SECONDS,
-    )
-
-
-@router.get("/accounts/duplicates")
-async def fetch_duplicate_accounts(
-    limit: int = Query(default=1000, ge=500, le=1000),
-    _user=Depends(require_user),
-):
-    try:
-        return await get_duplicate_account_response(limit)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unable to load Dynamics duplicate account records: {exc}",
-        ) from exc
-
-
-@router.get("/accounts/duplicate-accounts")
-async def fetch_duplicate_account_records_alias(
-    limit: int = Query(default=1000, ge=500, le=1000),
-    _user=Depends(require_user),
-):
-    try:
-        return await get_duplicate_account_response(limit)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unable to load Dynamics duplicate account records: {exc}",
-        ) from exc
-
-
-async def get_leadfeeder_visits_response(limit: int):
-    async def load_response():
-        visits = await get_leadfeeder_visits(limit)
-        return {
-            "count": len(visits),
-            "limit": limit,
-            "data": visits,
-        }
-
-    return await read_cache.get(
-        f"leadfeeder:{limit}",
-        load_response,
-        ttl_seconds=LEADFEEDER_TTL_SECONDS,
-        stale_seconds=STALE_GRACE_SECONDS,
-    )
-
-
-@router.get("/leadfeeder-visits")
-async def fetch_leadfeeder_visits(
-    limit: int = Query(default=200, ge=1, le=1000),
-    _user=Depends(require_user),
-):
-    try:
-        return await get_leadfeeder_visits_response(limit)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unable to load Leadfeeder visits: {exc}",
-        ) from exc
-
-
-@router.get("/accounts/leadfeeder-visits")
-async def fetch_account_leadfeeder_visits_alias(
-    limit: int = Query(default=200, ge=1, le=1000),
-    _user=Depends(require_user),
-):
-    try:
-        return await get_leadfeeder_visits_response(limit)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unable to load Leadfeeder visits: {exc}",
-        ) from exc
-
-
-@router.delete("/accounts/{account_id}")
-async def delete_duplicate_account(account_id: UUID, _user=Depends(require_user)):
-    try:
-        result = await delete_account(str(account_id))
-        invalidate_account_endpoint_caches()
-        return result
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Unable to delete Dynamics account: {exc}",
-        ) from exc
 
 
 @router.get("/accounts/summary-analytics")

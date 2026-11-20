@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -8,6 +9,8 @@ class OrganizationCreate(BaseModel):
     city: str = Field(default="", max_length=80)
     state: str = Field(default="", max_length=50)
     contract_expiration: date | None = None
+    number_of_users: int | None = Field(default=None, ge=0, le=2147483647, strict=True)
+    usage_type: Literal["prospecting", "bre", "both"] | None = None
 
     @field_validator("organization_name", "city", "state", mode="before")
     @classmethod
@@ -20,6 +23,8 @@ class OrganizationUpdate(BaseModel):
     city: str | None = Field(default=None, max_length=80)
     state: str | None = Field(default=None, max_length=50)
     contract_expiration: date | None = None
+    number_of_users: int | None = Field(default=None, ge=0, le=2147483647, strict=True)
+    usage_type: Literal["prospecting", "bre", "both"] | None = None
 
     @field_validator("organization_name", "city", "state", mode="before")
     @classmethod
@@ -37,6 +42,8 @@ class OrganizationResponse(BaseModel):
     state: str
     user_count: int
     contract_expiration: date | None = None
+    number_of_users: int | None = Field(default=None, ge=0, le=2147483647, strict=True)
+    usage_type: Literal["prospecting", "bre", "both"] | None = None
     created_at: str
     updated_at: str
 

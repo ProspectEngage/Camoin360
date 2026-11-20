@@ -2,6 +2,11 @@
 
 This repo has a FastAPI backend and a React frontend for the Sophie Maintenance dashboard.
 
+**Current authentication:** application login uses PostgreSQL only. Existing JSON
+login accounts are intentionally abandoned; do not import or reconcile them.
+Use the [fresh-account deployment procedure](#postgresql-authentication-fresh-account-deployment)
+below. Earlier Stage 1/2/2B migration plans are historical and superseded.
+
 ## Backend Files
 
 - `backend/app/main.py` creates the FastAPI app, enables CORS for the React dev server, and registers route modules.
@@ -11,7 +16,7 @@ This repo has a FastAPI backend and a React frontend for the Sophie Maintenance 
 - `backend/app/routes/metrics.py` owns the dashboard metrics API:
   - `GET /metrics`
 - `backend/app/routes/accounts.py` owns account enrichment/update routes.
-- `backend/app/services/users.json` is the local development user store and is ignored by Git.
+- `backend/app/services/users.json` is an inactive legacy artifact, ignored by Git and never read by authentication.
 
 ## Frontend Files
 
@@ -827,11 +832,11 @@ remain future work.
 
 ## Sophie Maintenance Home frontend (Step 5)
 
-`/dashboard` opens Home. Maintenance navigation is Home, Enrichment, Duplicate
-Accounts, Summary Analytics. `/dashboard/enrichment` is the Account enrichment
-workspace; `/dashboard/seamless` and `/dashboard/data-quality` replace browser
-history with that canonical route. Duplicate Accounts, Summary Analytics, and
-module permissions retain their existing routes/behavior.
+`/dashboard` opens Home. Maintenance navigation is Home and Enrichment.
+`/dashboard/enrichment` is the Account enrichment workspace; `/dashboard/seamless`
+and `/dashboard/data-quality` replace browser history with that canonical route.
+Retired Duplicate Accounts and Summary Analytics bookmarks redirect to Home.
+Duplicate account detection and its account deletion API have been removed.
 
 Home contains four KPI cards, one responsive 14-day creation chart, and the
 Recent New Accounts & Enrichment table. It uses authenticated
@@ -1050,3 +1055,772 @@ and the existing recent/attention Account table. The Needs Enrichment card has
 no link because the Enrichment workspace does not yet filter by the same
 persisted Data Health Choice definition. The sector chart component/API remain
 available internally but are no longer mounted on Home.
+
+## Application account persistence: stage 1 (not a production cutover)
+
+The legacy `/auth` routes still use `backend/app/services/users.json`. This stage
+adds an **inactive replacement persistence layer**, not another login endpoint,
+dual writes, or a JSON fallback. Do not deploy even this schema-only change before
+capturing the production JSON files: a Render deployment can lose them while the
+legacy routes are still active. The repository's local file is not a production
+backup. No production import or route change is performed by this stage.
+
+### Schema and persistence
+
+`backend/app/application_users_schema.py` adds `application_users` through the
+existing additive `initialize_database()` convention. Alembic currently contains
+only an unused scaffold. Initialization creates an empty table; it never reads
+JSON, imports accounts, or creates an administrator. Repeated initialization
+preserves existing rows. There is no automatic downgrade or table drop.
+
+`backend/app/services/application_users.py` supplies transactional creation,
+authentication, lookup, listing, updates, deletion, and explicit batch import.
+Normalized lowercase emails are unique and checked by PostgreSQL. Row locks
+prevent independent concurrent updates from overwriting one another. Commits
+finish before success returns; failed batches roll back completely. Public
+serialization retains the existing `/auth/users` shape and excludes hashes.
+Password verification supports the exact legacy `salt:hex_digest` encoding with
+PBKDF2-HMAC-SHA256 and 120000 iterations. No password resets are necessary.
+
+Existing string IDs retain their values. Numeric legacy IDs retain their exact
+JSON type in `legacy_id` and get the same value as a textual primary key. Records
+without IDs receive a UUID on first import; identical reruns preserve it. Legacy
+tokens identify accounts by normalized email, and the existing API exposes no ID
+field. Names, hashes, roles, organizations, and module arrays are retained without
+granting a union of conflicting permissions. Unknown legacy fields fail validation
+so identity or permission metadata cannot be silently discarded.
+
+Organization IDs are positive logical associations, deliberately without a
+foreign key to the separate client-management directory. Legacy IDs may refer to
+organizations absent from that directory. Import must not manufacture directory
+rows, and deleting a directory organization must not delete login identities.
+Verify organization mappings during migration review.
+
+`application_auth_configuration.require_auth_configuration()` is a prepared
+fail-closed gate requiring an explicit signing key of at least 32 bytes and a
+PostgreSQL URL. The next route stage must wire this gate into the actual startup
+path and require it in production, including when `RENDER` is set. Provision a
+random secret with at least 32 bytes of entropy through Render's secret settings;
+never use a development default or generate a different key per process. Validate
+that every instance uses the same database and signing key. This stage does not
+change the legacy routes' configuration behavior.
+
+### Production capture and reconciliation plan (must precede deployment)
+
+1. Inventory **every** serving Render instance, service, revision, and disk mount.
+   Securely capture each current JSON file before any restart, scaling operation,
+   or deployment. Arrange an approved account-write freeze for the final capture.
+   Inventory creation, password, module, and deletion changes during the freeze;
+   take a final snapshot from every instance. Lost files cannot be recovered from
+   PostgreSQL backups because application accounts have never been stored there.
+2. Read file bytes directly, without importing FastAPI or calling `_load_users()`
+   or `_with_admin_user()`; those legacy helpers can modify the file. Never print
+   file contents, password hashes, credentials, environment dumps, or tokens.
+   Leave every original `users.json` untouched. Treat snapshots as credential
+   material: transfer through an authenticated encrypted channel to approved
+   encrypted storage outside Render's ephemeral filesystem, with least-privilege
+   access and a retention policy. Keep source instance/revision/path/time and
+   checksum manifests securely alongside the encrypted originals. Validate that
+   a backup can be decrypted and read in an isolated environment.
+3. Decode verified copies with `decode_legacy_snapshot()` for duplicate-object-key
+   detection; a plain JSON load can silently discard duplicate keys. Pass all decoded mappings to the pure
+   `reconcile_legacy_accounts()` helper, supplying an explicitly reviewed default
+   organization ID for records missing that field. This helper never reads or
+   writes files. It combines identical records and rejects differences in IDs,
+   password hashes, name, role, organization, or modules. It also rejects email
+   key mismatches and conflicting IDs. Resolve conflicts through an approved
+   source-of-truth decision, never newest-file-wins or automatic permission union.
+   Reconciliation cannot infer whether an account present on one instance was
+   intentionally deleted on another; review available deletion/change history.
+4. Rehearse explicit `import_accounts()` on a disposable PostgreSQL database
+   using the reviewed snapshot. Imports only insert, never overwrite existing
+   accounts, and any conflict rolls back the whole batch. An identical rerun is
+   safe. Validate counts and per-account identity, hash equality, role,
+   organization, and modules without logging credential fields. Confirm the
+   designated administrator is present and test legacy-password login, module
+   access, two backend processes, process replacement, and account CRUD.
+5. Before production execution, build and review an operator command with
+   duplicate-key validation, encrypted-input handling, an explicit target,
+   dry-run reporting, and execution approval. No such production CLI or automatic
+   migration is provided in this stage. Production execution must use a reviewed
+   database target, a backup, least-privilege access, and the approved write freeze.
+   Do not infer production inputs or targets from repository defaults.
+
+### Cutover and rollback gates for the next stage
+
+Review and validate the import procedure and rollback rehearsal before editing
+the live authentication routes. Then change **all** `/auth` operations and token
+user resolution together to this one PostgreSQL store, retaining API contracts,
+the legacy password verifier, and current administrator/module authorization.
+Remove automatic administrator creation and default credentials from ordinary
+reads. Do not add JSON fallback, dual writes, or a second login route. On database
+failure, fail closed with a sanitized server error rather than creating an empty
+store or reporting an invalid token. Keep `users.json` untouched.
+
+Import approved accounts under the freeze before switching authentication. Before
+reopening writes, verify counts/permissions, administrator login, ordinary login,
+fresh processes, and shared-instance access. Keep original encrypted snapshots
+and a production PostgreSQL backup. Rehearse rollback to a reviewed recovery
+build against a **separate durable working copy** of the approved snapshot;
+original source files and archived backups must never be overwritten. A legacy
+build on a fresh ephemeral filesystem is not a valid rollback. Validate compatible
+signing configuration and explicit admin credentials so legacy read-time seeding
+cannot change the recovered administrator. Do not reopen account writes until
+this rollback path has been demonstrated.
+
+Once PostgreSQL account writes resume, the pre-cutover JSON snapshot is stale.
+Prefer rolling back application code while keeping PostgreSQL authentication.
+Reverting storage to JSON after that point requires another freeze and an
+explicitly reviewed export/reconciliation of all post-cutover changes; do not
+silently discard new accounts, deletions, or changed credentials/permissions.
+
+### Local regression checks
+
+Use a disposable **loopback-only** PostgreSQL database and explicitly set
+`TEST_DATABASE_URL`. The new tests never fall back to `DATABASE_URL`; they create
+and remove unique test schemas only. They use synthetic accounts and never read
+the repository's `users.json`.
+
+```bash
+TEST_DATABASE_URL=postgresql://localhost/camoin360_auth_test \
+  venv/bin/python -m pytest backend/app/services/test_application_users.py -q
+```
+
+Coverage includes fresh-process persistence, concurrent unique-email creation,
+independent concurrent edits, legacy-password login, permissions, CRUD, empty
+reads without seeding, repeated additive schema initialization, legacy-ID
+preservation, multi-instance reconciliation conflicts, idempotent imports,
+transaction rollback including commit failure, and secret-safe representations
+and storage errors. Run later route-contract and recovery rehearsals before
+production cutover; these persistence tests do not certify a production migration.
+
+## Application account migration: stage 2 operator tools
+
+Stage 2 prepares backups and read-only verification. It does not switch routes,
+restart Render, create production tables, or execute a production import. There
+is deliberately **no import/apply CLI command**. Stage 1's explicit import helper
+is exercised only with synthetic records in isolated local test schemas.
+
+### Encrypted capture of every live instance
+
+Use `backend/tools/auth_account_backup.py` as a standalone script. It imports no
+application modules, so it can be securely copied to an existing Render instance
+without deploying Stage 1 or Stage 2. Python and the existing `cryptography`
+dependency must be available in that instance's interpreter. Do not install or
+redeploy anything automatically if they are missing.
+
+Encryption uses a fresh AES-256-GCM data key and nonce per snapshot, with the data
+key wrapped by RSA-3072/OAEP-SHA256. The private key is an encrypted PKCS8 PEM,
+protected by a separately managed passphrase. Only the public key goes to Render.
+The original file bytes, all account fields (including unknown fields), source
+path, instance/service/revision identity, capture time, and source checksum are
+inside the encrypted envelope. No plaintext snapshot or temporary plaintext
+file is created during export. Console output contains only status and byte count.
+
+Before capture, inventory all serving instances and check the correct source
+path. Use **instance-specific SSH targets**, not the default randomly selected
+instance and not an ephemeral shell/new one-off instance. The latter does not
+contain the live instance's runtime-created file. Render documents instance
+selection in [SSH and Shell Access](https://render.com/docs/ssh#connecting-to-a-specific-instance)
+and provides [RENDER_INSTANCE_ID](https://render.com/docs/environment-variables#render_instance_id).
+Use the same verified instance target for upload, execution, and download.
+The exporter refuses an instance ID that differs from its runtime environment.
+Authenticated SSH and controlled storage establish source provenance; public-key
+encryption by itself does not attest which host created a backup.
+
+Run these commands on the approved operator workstation, from the repository
+root. Replace the storage path and SSH target with reviewed values. The storage
+path must be on an approved encrypted volume, outside the repository. Do not use
+shell tracing (`set -x`), paste secrets into command arguments, print environment
+variables, or display decrypted files. `set -eu` stops the example on failures.
+The keygen command prompts for a passphrase twice without echoing it.
+
+```bash
+set -eu
+umask 077
+ulimit -c 0
+C360_BACKUP_DIR='/approved/encrypted-volume/c360-auth-stage2'
+mkdir -m 700 "$C360_BACKUP_DIR"
+venv/bin/python backend/tools/auth_account_backup.py keygen \
+  --private-key "$C360_BACKUP_DIR/private.pem" \
+  --public-key "$C360_BACKUP_DIR/public.pem"
+
+# Repeat this block for EACH inventoried instance, changing instance-01 each time.
+C360_RENDER_TARGET='INSTANCE_SPECIFIC_SSH_TARGET_FROM_RENDER'
+mkdir -m 700 "$C360_BACKUP_DIR/instance-01"
+C360_REMOTE_DIR=$(ssh "$C360_RENDER_TARGET" 'umask 077; mktemp -d /tmp/c360-auth-capture.XXXXXX')
+scp backend/tools/auth_account_backup.py "$C360_BACKUP_DIR/public.pem" \
+  "$C360_RENDER_TARGET:$C360_REMOTE_DIR/"
+ssh "$C360_RENDER_TARGET" \
+  "python '$C360_REMOTE_DIR/auth_account_backup.py' export \
+    --source '/opt/render/project/src/backend/app/services/users.json' \
+    --public-key '$C360_REMOTE_DIR/public.pem' \
+    --output '$C360_REMOTE_DIR/accounts.c360backup' \
+    --instance-id \"\$RENDER_INSTANCE_ID\""
+scp "$C360_RENDER_TARGET:$C360_REMOTE_DIR/accounts.c360backup" \
+  "$C360_BACKUP_DIR/instance-01/"
+```
+
+The source path above is the usual repository layout; verify it for the deployed
+service before execution. No command reads through the auth routes, seeds an
+administrator, overwrites `users.json`, or restarts the service. The exporter
+reads the source twice and compares inode/size/change timestamps and bytes to
+detect concurrent replacement or writes. A final capture still requires an
+approved account-write freeze across all instances; capture provisional backups
+first, before any disruptive operation. Reads may update filesystem access time.
+Files over 8 MiB fail closed to bound memory use on the live service. A failed
+capture is not a backup; resolve it without restarting or losing the source.
+
+Outputs require an owner-only directory, are mode 0600, and are published
+atomically without replacing existing paths or following source symlinks. If
+interrupted before publication, no partial final backup appears. An abrupt kill
+may leave a mode-0600 temporary encrypted file; do not treat it as a completed
+backup. A backup of corrupted JSON preserves the original bytes but will be
+blocked by migration validation. A missing file is an error, never an empty
+account mapping or a signal to seed an administrator.
+
+Keep the encrypted backups and key backups in access-controlled approved storage
+outside Render, with retention/versioning and a tested restore. Keep the private
+key and its passphrase in separate restricted stores. Retain the original files
+and encrypted snapshots unchanged. Restrict access to named migration operators;
+record access and approvals without recording credentials or account contents.
+Do not commit any artifacts. Delete neither source files nor archived originals
+as part of this procedure. Remote copies are encrypted, but `/tmp` is still
+ephemeral: securely download and validate every capture before relying on it.
+
+### Reconciliation and dry-run commands
+
+Run private-key operations on the operator workstation, not on Render. These
+commands prompt for the key passphrase. Automation may instead use a mode-0600,
+operator-owned `--passphrase-file` supplied by an approved secret manager. Do not
+pass the passphrase itself on the command line or in shell history.
+
+For a two-instance example (repeat `--snapshot` for all inventoried instances):
+
+```bash
+venv/bin/python -m backend.app.workers.application_user_migration reconcile \
+  --snapshot "$C360_BACKUP_DIR/instance-01/accounts.c360backup" \
+  --snapshot "$C360_BACKUP_DIR/instance-02/accounts.c360backup" \
+  --expected-instances 2 --private-key "$C360_BACKUP_DIR/private.pem" \
+  --default-organization-id 1
+```
+
+Supply the reviewed legacy default organization ID, not an assumed value of 1.
+`--expected-instances` must match the inventory; snapshots must have distinct
+instance identities. The tool does not discover production instances, so the
+operator must verify actual inventory membership and capture freshness. It
+authenticates/decrypts each envelope in memory, detects duplicate JSON keys, and
+uses Stage 1 validation/reconciliation. Unsupported hashes, invalid PostgreSQL
+text, unrecognized fields, mismatched email keys, differing records, or ID
+collisions block migration. Identical normalized-email records can coalesce.
+Reports contain counts and 1-based snapshot/record positions only, never actual
+emails, IDs, names, password hashes, or hash fingerprints. Record positions refer
+to the order in the captured JSON. Conflicts need an explicitly approved source
+decision, including review of intentional deletions; do not merge privileges or
+pick the newest file automatically. Originals remain untouched.
+
+To check a reviewed database target, have an approved secret manager inject its
+connection string into `C360_REVIEW_DATABASE_URL` without echoing it. Use a
+SELECT-only database account. Credentials never appear in CLI arguments.
+
+```bash
+venv/bin/python -m backend.app.workers.application_user_migration dry-run \
+  --snapshot "$C360_BACKUP_DIR/instance-01/accounts.c360backup" \
+  --snapshot "$C360_BACKUP_DIR/instance-02/accounts.c360backup" \
+  --expected-instances 2 --private-key "$C360_BACKUP_DIR/private.pem" \
+  --default-organization-id 1 --database-url-env C360_REVIEW_DATABASE_URL \
+  --expected-database 'REVIEWED_DATABASE_NAME' --expected-schema public
+```
+
+The database must already have the Stage 1 schema through a separately approved
+schema operation. A missing/incompatible table blocks review; this command never
+creates or repairs it. It checks explicit database/schema identity, column types
+and nullability, primary/unique keys, and named validated email/ID constraints.
+It then reads accounts in one bounded, repeatable-read **READ ONLY** transaction
+and compares expected and stored records. Missing accounts represent proposed
+inserts during dry-run; different existing accounts, ID collisions, unsupported
+stored hashes, or unexpected database accounts block it. Both current and
+expected counts are reported. There is no fallback to `DATABASE_URL`, application
+startup, DDL, write probe, import, or rollback-only insertion into the target.
+
+A successful dry-run proves the inspected structure and records are compatible;
+it does not test INSERT privileges, custom triggers, deployment behavior, backup
+completeness, or a production commit. Run an actual import/rollback rehearsal on
+an approved disposable database with the reviewed inputs before Stage 3. The
+automated suite already rehearses those paths using synthetic data only.
+
+### Password and post-import verification
+
+All hashes are validated against the existing Stage 1 legacy format. No hashes
+are re-derived or changed. To confirm an existing password against its captured
+hash, use the optional offline interactive command below. Email and password
+are both entered without echo; only a success boolean is printed.
+
+```bash
+venv/bin/python -m backend.app.workers.application_user_migration check-password \
+  --snapshot "$C360_BACKUP_DIR/instance-01/accounts.c360backup" \
+  --expected-instances 1 --private-key "$C360_BACKUP_DIR/private.pem" \
+  --default-organization-id 1
+```
+
+Format compatibility alone cannot prove a user's unknown plaintext password.
+The optional check uses the same Stage 1 password verifier; synthetic known-
+password tests also verify compatibility without resetting passwords.
+
+After a separately approved future import, rerun the dry-run command with
+`verify` in place of `dry-run`. Verification requires exact account counts and
+normalized email membership, compares explicit legacy IDs and their JSON types,
+names, roles, organization associations, module arrays, and exact password-hash
+equality. It flags missing and unexpected records. ID-less JSON cannot predict
+generated IDs; their database primary keys remain authoritative and existing
+explicit IDs must match exactly. Output contains mismatch counts, not values.
+No account data is modified. Keep the account-write freeze until validation and
+the designated administrator's login/permissions have been confirmed.
+
+Exit status is 0 for success, 1 for blocked reconciliation/comparison, 2 for
+operational/input failure, and 130 for interruption. Errors are fixed codes with
+no raw exceptions, connection strings, arguments, or paths. Never enable debugger
+locals, SQL parameter logging, tracing, or core dumps around decrypted material.
+
+### Recovery and remaining cutover gates
+
+Rehearse byte-exact recovery into a new, protected working copy on the operator
+workstation. This explicitly creates plaintext credential material, so only use
+an approved encrypted volume. Existing destinations, including original
+`users.json`, cannot be overwritten:
+
+```bash
+venv/bin/python -m backend.app.workers.application_user_migration recover \
+  --snapshot "$C360_BACKUP_DIR/instance-01/accounts.c360backup" \
+  --expected-instances 1 --private-key "$C360_BACKUP_DIR/private.pem" \
+  --default-organization-id 1 --allow-plaintext-recovery \
+  --output "$C360_BACKUP_DIR/recovery-working-copy.json"
+```
+
+This restores exactly one captured source, not a reconciled multi-instance union
+and not a production file. Recovery validates JSON/account compatibility first;
+corrupt captures require separate forensic recovery, not a live restore. Do not
+print, edit, commit, or deploy the recovered copy. A multi-instance rollback needs
+a separately reviewed consolidated working copy; the tool deliberately does not
+choose winners or reconstruct deleted accounts.
+
+Before Stage 3, obtain real complete instance captures, approve reconciliation
+and organization defaults, rehearse migration and recovery with the approved
+inputs, verify the designated administrator, confirm common secure signing and
+database configuration across instances, and validate the no-data-loss rollback
+plan. No production captures or imports have been executed by Stage 2. Do not
+change authentication routes until the user approves Stage 3. After PostgreSQL
+writes resume, prefer code rollback retaining PostgreSQL; a stale JSON snapshot
+cannot safely replace the new source of truth.
+
+Stage 2 regressions:
+
+```bash
+TEST_DATABASE_URL=postgresql://localhost/camoin360_auth_test \
+  venv/bin/python -m pytest backend/app/workers/test_application_user_migration.py \
+  backend/app/services/test_application_users.py -q
+```
+
+## Stage 2B readiness review and synthetic rehearsal
+
+Decision: **production capture is conditional, not authorized or verified by this
+review; production migration/cutover is NO-GO.** No production account files,
+records, or account endpoints were accessed. No Render service was restarted,
+scaled, or redeployed. Production authentication code was not changed.
+
+The session had no Render connector, CLI, or API credential. No deployment
+manifest in this checkout established the actual service topology. The public
+API cannot establish instance count or filesystem layout. Consequently the live
+instance count/IDs, deployed revision, runtime/root/start command, source path,
+Python/dependencies, disk permissions, database configuration, and account
+compatibility are **UNVERIFIED**. The native-runtime example path in Stage 2 is
+a candidate, not a confirmed production path. Docker WORKDIR may differ.
+
+| Readiness requirement | Result | Evidence or remaining condition |
+| --- | --- | --- |
+| Review existing implementation | PASS | Code reviewed; gaps below reproduced with synthetic probes |
+| Actual deployed JSON path | UNVERIFIED | No production shell/configuration access; derive from deployed source without importing the app |
+| Current production instance count and complete inventory | UNVERIFIED | Operator must record current live IDs, not autoscaling maximum or process concurrency |
+| Backup encryption, no-clobber writes, source preservation | PASS locally / UNVERIFIED on Render | Existing synthetic tests; live interpreter, filesystem, SSH/SFTP, and canary still required |
+| Preserve valid legacy accounts in PostgreSQL | PASS for synthetic inputs / UNVERIFIED for production | IDs/types, hashes, roles, organization IDs, and module arrays survived import and restore |
+| Administrator, organization mapping, and password policy | PASS at persistence level / UNVERIFIED end to end | Administrator route policy and frontend organization behavior need explicit Stage 3 validation |
+| Full isolated migration rehearsal | PASS | Two encrypted instance snapshots, reconciliation, read-only dry-run, import, verification, fresh process |
+| Rollback after post-migration account changes | PASS for persistence/recovery / FAIL for deployable rollback readiness | Same-PG process and latest dump restore retain changes; PG-aware route rollback build not yet implemented |
+| Complete automated production safety gates | FAIL | Inventory binding and constraint-definition gaps reproduced; security findings below |
+| Production execution approval/checklist | PASS as a plan / UNVERIFIED for execution | Explicit capture approval and metadata/canary signoff required; no approval inferred |
+
+### Rehearsal evidence and unresolved findings
+
+`backend/app/workers/test_application_user_readiness.py` adds seven checks to the
+previous 78: **85 passed** on disposable loopback PostgreSQL 14. Tests used only
+synthetic records; encrypted sources were unchanged. They covered a string admin
+ID, numeric legacy ID with its original JSON type, an ID-less account, an approved
+default organization, and module permissions. Following import, tests created a
+new account, changed another account's password/modules, and deleted an account.
+A fresh Python process retaining PostgreSQL preserved all changes. A subsequent
+`pg_dump`/`pg_restore` into a separate disposable database preserved exact account
+records and working passwords. Byte-exact recovery of an old JSON snapshot was
+possible, but verification correctly rejected it as stale. This is not a rehearsal
+of real Render routes or proof of production RPO/PITR; writes after a backup are
+not covered by that backup.
+
+Two passing **diagnostic probes reproduce gaps**, rather than certify safety:
+
+1. `load_snapshots()` checks snapshot count and distinct instance IDs but does
+   not bind them to approved instance/service IDs, revision, source path, or a
+   freshness window. The exporter check also proves nothing about the intended
+   target if passed its own `$RENDER_INSTANCE_ID`. For capture, pass the separately
+   inventoried expected ID; the exporter then rejects a different running
+   instance. Add machine-checked manifest/inventory/freshness approval before a
+   production import. Identical file checksums or a successful reconciliation do
+   not prove complete inventory, legitimate deletions, or source provenance.
+2. `_schema_compatible()` checks named, validated CHECK constraints, not their
+   expressions. Replacing the normalized-email CHECK with `CHECK (TRUE)` retained
+   a false-positive `ready` result in the local probe. Compare full constraint
+   definitions and inspect defaults, triggers, RLS policies, and target privileges
+   before relying on schema verification for cutover. Do not treat current
+   dry-run success as sufficient production schema certification.
+
+Additional gates:
+
+- A final freeze must cover ordinary auth reads that can rewrite the built-in
+  administrator via `_with_admin_user()`, not just explicit account CRUD. Freeze
+  procedures must be separately approved; do not change Render environment
+  settings to achieve this, because they can trigger deployment/restart. Take
+  provisional encrypted backups first without delaying preservation for cutover.
+- An account absent on one instance might have been deleted intentionally or
+  never created there. JSON contains no deletion tombstones. Reconciliation unions
+  membership and cannot infer intent; approve those differences using available
+  audit history/account-owner review before import.
+- Existing admin-route access checks the designated email, while module access
+  accepts `role == 'admin'`. Preserving an admin role alone does not establish
+  management access. Validate the designated identity, role, full modules, and
+  password under the planned route adapter, without read-time provisioning.
+- Legacy organization handling accepts values such as numeric strings or falls
+  back for null/zero; strict migration rejects them. Those cases require approved
+  mappings, not silent coercion. `AuthResponse` currently omits organization ID,
+  while frontend `saveCurrentUser()` defaults to 1 despite the token carrying the
+  actual association. Validate backend/token/frontend consistency in Stage 3.
+  Logical IDs are not directory foreign keys: absence from `organizations` is not
+  permission to fabricate or reassign directory rows.
+- Unknown legacy fields or unsupported types intentionally block import. No
+  claim that every real account is compatible can be made before approved capture
+  and reconciliation. Existing legacy password format was exercised without reset.
+- The prepared secret validator is not wired into live routes; built-in defaults
+  remain. Production key strength/sharing, TLS verification, database identity,
+  least-privilege roles, encrypted storage, backup retention, and PITR/RPO remain
+  unverified. Minimum key length alone does not establish entropy or secure TLS.
+- The existing separate client-user response model still includes `password_hash`
+  (`backend/app/schemas/client_user.py`). Do not use `/users` for diagnostics or
+  backup. This is a separate security defect requiring an authorized fix.
+- No PG-aware authentication rollback build or production import/apply CLI exists.
+  Code rollback to current legacy routes would return to ephemeral JSON. Never
+  restore pre-cutover JSON over post-cutover identities. Retain PostgreSQL or,
+  under a new write freeze, recover a verified latest database backup/PITR target.
+
+Only rehearsal tests and this report were added in Stage 2B. Functional migration,
+backup, authentication, and frontend implementation were left unchanged.
+
+### Operator checklist and exact commands (not executed on production)
+
+1. **Metadata signoff.** In Render, record service ID, current live instance IDs
+   and timestamp, revision, native/Docker runtime, root/start command, actual
+   interpreter, disk mounts, and each instance-specific SSH target. Verify SSH
+   host fingerprints using Render's published list. Default random SSH targets,
+   ephemeral shells, configured maximum instance count, and `WEB_CONCURRENCY`
+   are not an inventory. If SSH/SFTP is unavailable, stop; do not redeploy for it.
+2. **Configuration-only preflight.** For each inventoried live instance, set the
+   values below from reviewed metadata. These example paths are candidates until
+   confirmed. Run the following in Bash from the operator workstation. It reads
+   deployed Python source as AST only; it never opens or stats `users.json`,
+   imports application modules, prints secrets, or calls authentication routes.
+
+```bash
+set -euo pipefail
+umask 077
+ulimit -c 0
+C360_RENDER_TARGET='REVIEWED_INSTANCE_SPECIFIC_SSH_TARGET'
+C360_EXPECTED_INSTANCE_ID='REVIEWED_LIVE_INSTANCE_ID'
+C360_PYTHON='/absolute/reviewed/service/python'
+C360_AUTH_FILE='/opt/render/project/src/backend/app/routes/auth.py'
+C360_SOURCE_JSON='/opt/render/project/src/backend/app/services/users.json'
+
+# Permit only simple reviewed infrastructure paths in the remote shell command.
+[[ "$C360_PYTHON" =~ ^/[A-Za-z0-9_./-]+$ ]]
+[[ "$C360_AUTH_FILE" =~ ^/[A-Za-z0-9_./-]+$ ]]
+[[ "$C360_SOURCE_JSON" =~ ^/[A-Za-z0-9_./-]+$ ]]
+[[ "$C360_EXPECTED_INSTANCE_ID" =~ ^[A-Za-z0-9_-]+$ ]]
+
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$C360_RENDER_TARGET" \
+  "'$C360_PYTHON' - '$C360_AUTH_FILE' '$C360_SOURCE_JSON' '$C360_EXPECTED_INSTANCE_ID'" <<'PY'
+import ast, json, os, pathlib, sys
+try:
+    auth = pathlib.Path(sys.argv[1]).resolve()
+    tree = ast.parse(auth.read_text())
+    assignments = {n.targets[0].id: n.value for n in tree.body
+                   if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)}
+    expected = {'BASE_DIR': 'Path(__file__).resolve().parent.parent / "services"',
+                'USERS_FILE': 'BASE_DIR / "users.json"'}
+    layout = all(ast.dump(assignments[k]) == ast.dump(ast.parse(v, mode='eval').body)
+                 for k, v in expected.items())
+    from cryptography.hazmat.primitives.asymmetric import rsa, padding
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    report = {'instance_matches': os.getenv('RENDER_INSTANCE_ID') == sys.argv[3],
+              'source_layout_matches_reviewed_code': layout,
+              'candidate_path_matches': str(auth.parent.parent / 'services' / 'users.json') == sys.argv[2],
+              'crypto_imports_available': True}
+    print(json.dumps(report))
+    sys.exit(0 if all(report.values()) else 2)
+except Exception:
+    print('{"status":"preflight_failed"}')
+    sys.exit(2)
+PY
+```
+
+   Stop on any false result/failure or unexpected deployed code. This does not
+   verify account-file existence/readability/size or loaded-process identity;
+   source/start-command provenance must be signed off. Do not print module source,
+   AST, process arguments, environment dumps, or file contents.
+3. **Capture approval.** Obtain explicit approval to read/export the real JSON
+   from every recorded instance into the approved encrypted store. The present
+   readiness request is not that approval. Record the operator, approved source
+   paths/IDs, recipients, storage/key custodians, and retention. Schema changes,
+   data import, auth changes, environment updates, scaling, and deploys are excluded.
+4. **Key, canary, and provisional capture.** After approval, generate keys once
+   using Stage 2 keygen on an approved encrypted workstation volume. Never send
+   the private key or passphrase to Render. For each instance, keep the same
+   reviewed variables and use a new local directory. These commands supersede
+   the self-referential instance-ID argument in the earlier example:
+
+```bash
+C360_BACKUP_DIR='/approved/encrypted-volume/c360-auth-stage2b'
+mkdir -m 700 "$C360_BACKUP_DIR"
+venv/bin/python backend/tools/auth_account_backup.py keygen \
+  --private-key "$C360_BACKUP_DIR/private.pem" --public-key "$C360_BACKUP_DIR/public.pem"
+
+# Per instance: change instance-01 on subsequent iterations; do not rerun keygen.
+mkdir -m 700 "$C360_BACKUP_DIR/instance-01"
+C360_REMOTE_DIR=$(ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$C360_RENDER_TARGET" \
+  'umask 077; mktemp -d /tmp/c360-auth-capture.XXXXXX')
+[[ "$C360_REMOTE_DIR" =~ ^/tmp/c360-auth-capture\.[A-Za-z0-9]+$ ]]
+scp -o BatchMode=yes -o StrictHostKeyChecking=yes backend/tools/auth_account_backup.py \
+  "$C360_BACKUP_DIR/public.pem" "$C360_RENDER_TARGET:$C360_REMOTE_DIR/"
+
+# Synthetic canary only: verifies encryption/filesystem/transfer before account capture.
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$C360_RENDER_TARGET" \
+  "umask 077; set -C; printf '%s' 'c360-stage2b-canary-v1' > '$C360_REMOTE_DIR/canary.txt'"
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$C360_RENDER_TARGET" \
+  "'$C360_PYTHON' '$C360_REMOTE_DIR/auth_account_backup.py' export \
+    --source '$C360_REMOTE_DIR/canary.txt' --public-key '$C360_REMOTE_DIR/public.pem' \
+    --output '$C360_REMOTE_DIR/canary.backup' --instance-id '$C360_EXPECTED_INSTANCE_ID'"
+scp -o BatchMode=yes -o StrictHostKeyChecking=yes "$C360_RENDER_TARGET:$C360_REMOTE_DIR/canary.backup" \
+  "$C360_BACKUP_DIR/instance-01/"
+venv/bin/python - "$C360_BACKUP_DIR/private.pem" "$C360_BACKUP_DIR/instance-01/canary.backup" <<'PY'
+import sys
+from backend.tools.auth_account_backup import decrypt_snapshot, read_passphrase
+try:
+    # stdin carries this script; an operator-owned 0600 secret-manager file is
+    # required here so no passphrase is echoed or supplied as an argument value.
+    import os
+    phrase = read_passphrase(os.environ['C360_PASSPHRASE_FILE'])
+    raw, _ = decrypt_snapshot(sys.argv[2], sys.argv[1], phrase)
+    assert raw == b'c360-stage2b-canary-v1'
+    print('{"status":"canary_verified"}')
+except Exception:
+    print('{"status":"canary_failed"}')
+    sys.exit(2)
+PY
+
+# Only after explicit capture approval, successful preflight/canary, and source signoff:
+ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$C360_RENDER_TARGET" \
+  "'$C360_PYTHON' '$C360_REMOTE_DIR/auth_account_backup.py' export \
+    --source '$C360_SOURCE_JSON' --public-key '$C360_REMOTE_DIR/public.pem' \
+    --output '$C360_REMOTE_DIR/accounts.c360backup' --instance-id '$C360_EXPECTED_INSTANCE_ID'"
+scp -o BatchMode=yes -o StrictHostKeyChecking=yes "$C360_RENDER_TARGET:$C360_REMOTE_DIR/accounts.c360backup" \
+  "$C360_BACKUP_DIR/instance-01/"
+```
+
+   Before the canary verification, have the secret manager supply
+   `C360_PASSPHRASE_FILE` as a **file path only**, referring to an operator-owned
+   mode-0600 file outside the repository. Keep its value out of transcript dumps.
+   If secure secret-file delivery is unavailable, stop rather than echoing the
+   passphrase. No dependency installation or service configuration change is
+   authorized if preflight fails. Stop on any transfer, 8-MiB source limit,
+   encryption, permission, source-change, or no-clobber error. Hard-link and
+   directory-fsync support are proven by the canary, not assumed from local tests.
+5. **Preservation receipt.** Download and authenticate/decrypt each capture
+   immediately; confirm inventory membership, revision, source path, and capture
+   freshness through a restricted review, without printing account contents or
+   credential values. Existing CLI checks cannot replace this signoff. Keep
+   all originals and encrypted copies; do not clean up live account files.
+6. **Separate approvals before proceeding.** Approve a final freeze/capture,
+   any conflict/deletion/organization decisions, real-snapshot isolated rehearsal,
+   target schema verification, and PG-aware recovery-build validation. Fix the
+   inventory/schema verification gaps before production migration. Only after
+   another explicit Stage 3 approval may authentication routes be modified.
+   No production import command is supplied or authorized by this review.
+
+Reproduce the local-only review/rehearsal with an explicitly disposable loopback
+database (never a production URL):
+
+```bash
+TEST_DATABASE_URL=postgresql://localhost/camoin360_auth_test \
+  venv/bin/python -m pytest backend/app/workers/test_application_user_readiness.py \
+  backend/app/workers/test_application_user_migration.py \
+  backend/app/services/test_application_users.py \
+  backend/app/services/test_client_users.py backend/app/routes/test_auth_routes.py -q
+```
+
+## PostgreSQL authentication: fresh-account deployment
+
+This is the current procedure and supersedes all earlier preservation/migration
+plans above. Existing JSON login accounts and their old sessions are intentionally
+abandoned. **Do not import JSON accounts.** Neither `users.json` nor the historical
+encrypted-backup utilities are deleted. Authentication never reads those files,
+falls back to them, or provisions an administrator during startup or login.
+The `client_users` business directory remains separate and unchanged.
+
+### Runtime behavior and configuration
+
+All `/auth` operations and token-user resolution use the shared PostgreSQL
+`application_users` service. Normalized email uniqueness is database-enforced.
+User IDs are stable and included in signed claims, so deleting and recreating an
+email does not reactivate a token issued to the old identity. Permissions are
+reloaded from PostgreSQL on each authenticated request. A missing/unavailable
+store fails closed; it cannot be replaced by an empty local file.
+
+Login responses retain token/name/email/role/modules and now also return
+`organization_id`, fixing the frontend's previous fallback to organization 1.
+JWTs are standard three-part HS256 tokens with a fixed algorithm, issuer,
+audience, issued-at time, account ID, and 12-hour expiry. The React token parser
+was updated accordingly. Old two-part sessions must log in again. Administrators
+are authorized by their database role, with all existing module options; no
+person's email or credentials are hardcoded. Admin editing/deletion through the
+normal account API remains forbidden. Public signup remains disabled.
+
+Required runtime settings:
+
+- `DATABASE_URL`: the reviewed persistent PostgreSQL target shared by every
+  backend instance. Review TLS/certificate settings and existing business-service
+  privileges; authentication introduces no alternative database URL or SQLite.
+- `AUTH_SECRET_KEY`: one securely generated random secret with at least 32 bytes
+  of entropy, delivered through a secret manager to every backend instance and
+  the bootstrap operator. There is no default or per-process generated key.
+  The validator rejects missing, short, whitespace-padded, or trivially repetitive
+  values. Length/diversity validation cannot substitute for random generation.
+- `AUTH_DATABASE_SCHEMA`: defaults to `public`; set it explicitly when using a
+  different reviewed schema/search path. Operator target and runtime must match.
+- `CAMOIN360_ORGANIZATION_ID`: optional default association for ordinary new users;
+  review it against business ownership. Bootstrap requires its own explicit ID.
+- Frontend `REACT_APP_API_BASE_URL`: keep it set to the reviewed production API
+  (`https://api.camoin360.com`); build and deploy the JWT-aware frontend with the
+  backend during the coordinated authentication cutover.
+
+The durable `application_auth_bootstrap` singleton records completion and a
+signing-key digest. Startup validates schema and any existing signing binding;
+JWT signing/verification also checks that binding. A backend configured with a
+different key cannot issue incompatible sessions. Do not change the key on one
+instance or rerun bootstrap to rotate it. Coordinated key rotation requires an
+explicitly reviewed binding/configuration change; it invalidates existing sessions.
+Only the digest is stored; neither it nor credentials are returned by the API or
+printed by operator commands.
+
+### Additive preparation and explicit one-time bootstrap
+
+The commands below are a **future operator runbook**, not commands executed or
+authorized against production during implementation. No production records,
+schema, bootstrap, configuration, deploy, or push was performed here.
+
+1. Review the intended release and production database/schema identity. Provision
+   the shared signing key and database connection through approved secret storage.
+   Keep credential values out of command arguments, terminal output, transcripts,
+   repository files, SQL-parameter logging, debug locals, and shell tracing.
+2. With separate approval for additive auth schema preparation, run the new
+   operator command from the reviewed release on an approved workstation/job.
+   Have the secret manager populate `CAMOIN360_AUTH_OPERATOR_DATABASE_URL`; it
+   must point at the same database/schema used by runtime `DATABASE_URL`.
+
+```bash
+venv/bin/python -m backend.app.workers.application_auth_admin prepare-schema \
+  --database-url-env CAMOIN360_AUTH_OPERATOR_DATABASE_URL \
+  --expected-database REVIEWED_DATABASE_NAME --expected-schema public
+
+venv/bin/python -m backend.app.workers.application_auth_admin verify-schema \
+  --database-url-env CAMOIN360_AUTH_OPERATOR_DATABASE_URL \
+  --expected-database REVIEWED_DATABASE_NAME --expected-schema public
+```
+
+   Preparation creates only the two auth tables and the single-admin unique
+   index. It does not call the business initializer, seed business rows, read
+   JSON, drop/recreate existing tables, overwrite users, or repair unknown drift.
+   Repeated preparation preserves all existing records. If unexpected existing
+   auth rows or multiple administrators cause refusal, stop for review; do not
+   delete them automatically. Verification reads catalogs only and checks actual
+   CHECK expressions/enforcement, required columns/types/nullability/defaults,
+   valid immediate primary/unique indexes and their predicates, the bootstrap
+   foreign key, and absence of unexpected triggers/rules/RLS. Name-only checks
+   are no longer accepted. Runtime startup requires successful verification;
+   missing schema/configuration prevents serving authentication.
+3. Obtain deployment approval and deploy the reviewed backend and JWT-aware
+   frontend in one coordinated authentication maintenance window. No JSON-account
+   preservation is required under the new requirements. Avoid routing requests
+   between old JSON backends and new PostgreSQL backends during rollout. Startup
+   is allowed with no administrator and never creates one; login remains
+   unavailable until explicit bootstrap succeeds. Confirm every instance points
+   at the intended persistent database and shares the signing key.
+4. Obtain explicit approval for the **one-time production administrator write**.
+   Supply all five values through the secret manager, without shell defaults:
+   `AUTH_SECRET_KEY`, `CAMOIN360_BOOTSTRAP_NAME`, `CAMOIN360_BOOTSTRAP_EMAIL`,
+   `CAMOIN360_BOOTSTRAP_PASSWORD`, `CAMOIN360_BOOTSTRAP_ORGANIZATION_ID`.
+   The administrator password must contain 8–1024 characters and should be
+   randomly generated and stored in the organization's password manager.
+
+```bash
+venv/bin/python -m backend.app.workers.application_auth_admin bootstrap-admin \
+  --database-url-env CAMOIN360_AUTH_OPERATOR_DATABASE_URL \
+  --expected-database REVIEWED_DATABASE_NAME --expected-schema public \
+  --confirm-bootstrap
+```
+
+   Bootstrap validates the target/schema, serializes concurrent attempts, and
+   commits the account and completion/key marker in one transaction. It refuses
+   any existing administrator, matching email, or completed marker. A unique
+   partial index also prevents duplicate administrators. Repeating the command
+   cannot reset a password, replace privileges, or create another administrator.
+   Deleting/demoting an administrator does not reset the one-time marker. There
+   are no default credentials or public provisioning endpoints. Errors and
+   success output contain fixed status/operation values only. Exit 0 means
+   committed success; 2 means refused/failed; 130 means interrupted. If the
+   result is uncertain, verify login/state rather than deleting rows or forcing
+   a retry around the safeguards.
+5. Remove bootstrap-specific credentials from the operator environment/job and
+   secret delivery scope. They need not exist in the long-running backend.
+   Retain runtime `AUTH_SECRET_KEY` and `DATABASE_URL`. Log in through the new
+   frontend, create fresh users in Admin, assign their modules, and verify access
+   through more than one instance and after a planned restart/deploy. Do not use
+   account API responses or logs to print credential material. Protected admin
+   password recovery/rotation must be a separate approved operator operation;
+   bootstrap cannot be reused as a reset mechanism.
+
+### Rollback and validation
+
+Rollback must retain PostgreSQL authentication and the latest account data. A
+rollback to the old JSON implementation would hide all freshly created accounts
+and is not a supported recovery strategy. Use database backups/PITR under the
+reviewed recovery plan; pre-cutover JSON snapshots contain none of the fresh
+accounts. No recovery operation should drop existing business tables.
+
+Local regressions use only disposable loopback PostgreSQL and synthetic
+credentials. Auth schema preparation was also tested in a separate schema with
+a business sentinel: only auth tables were added and the sentinel was unchanged.
+Tests cover HTTP contracts, normalized-email conflicts, module/admin enforcement,
+expiry and malformed JWTs, current permission resolution, deleted/recreated
+identity isolation, fresh-process/multiple-instance persistence, signing-key
+mismatch, empty startup without provisioning, concurrent/one-time bootstrap,
+rollback on interruption, and schema/default/index/constraint drift. Historical
+backup utility tests remain and do not authorize importing abandoned JSON accounts.
+
+Production target, runtime settings, and deployment revision remain unverified
+until the approved operator checks them. Historical snapshot-inventory gaps are
+not prerequisites for this fresh-account deployment, because no snapshots are
+used by live authentication or bootstrap.

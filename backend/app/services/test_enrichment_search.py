@@ -9,6 +9,22 @@ BASE = "https://crm.example/api/data/v9.2"
 
 
 class EnrichmentSearchTest(unittest.IsolatedAsyncioTestCase):
+    async def test_health_classifications_filter_persisted_choice_before_pagination(self):
+        self.client.get.return_value = httpx.Response(200, json={"value": [self.account(cr73c_datahealthscore=0)]})
+        for category, choice in (("poor", 732660000), ("needs_enrichment", 732660001),
+                                 ("good", 732660002), ("excellent", 732660003)):
+            result = await dynamics.search_accounts_data_quality_from_dynamics(enrichment_fields=True, data_health=category)
+            url = unquote(self.client.get.await_args.args[0])
+            self.assertIn(f"cr73c_datahealth eq {choice}", url)
+            self.assertEqual(result["data"][0]["cr73c_datahealthscore"], 0)
+        await dynamics.search_accounts_data_quality_from_dynamics(enrichment_fields=True, data_health="all")
+        self.assertNotIn("cr73c_datahealth eq", unquote(self.client.get.await_args.args[0]))
+
+    async def test_invalid_health_classification_rejected_without_network(self):
+        with self.assertRaises(ValueError):
+            await dynamics.search_accounts_data_quality_from_dynamics(enrichment_fields=True, data_health="unknown")
+        self.client.get.assert_not_awaited()
+
     def setUp(self):
         self.client = AsyncMock()
         self.client.__aenter__.return_value = self.client

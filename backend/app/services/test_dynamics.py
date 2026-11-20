@@ -9,7 +9,6 @@ from .dynamics import (
     create_pe_client_user,
     delete_marketing_list,
     get_contract_backlog_metrics,
-    get_leadfeeder_visits,
     get_marketing_list_conversion_analysis,
     get_marketing_list_members,
     get_marketing_lists,
@@ -182,6 +181,8 @@ class FakeAsyncClient:
     list_metadata_relationships = []
     account_metadata_relationships = []
     website_visit_metadata_relationships = []
+    project_metadata_relationships = []
+    campaign_metadata_relationships = []
     list_payload = {"value": []}
     member_account_payload = {"value": []}
     conversion_list_payload = {"value": []}
@@ -208,6 +209,12 @@ class FakeAsyncClient:
 
         if "EntityDefinitions(LogicalName='list')/ManyToOneRelationships" in url:
             return FakeDynamicsResponse({"value": self.list_metadata_relationships})
+
+        if "EntityDefinitions(LogicalName='campaign')/ManyToOneRelationships" in url:
+            return FakeDynamicsResponse({"value": self.campaign_metadata_relationships})
+
+        if "EntityDefinitions(LogicalName='new_project')/ManyToOneRelationships" in url:
+            return FakeDynamicsResponse({"value": self.project_metadata_relationships})
 
         if "EntityDefinitions(LogicalName='account')/ManyToOneRelationships" in url:
             return FakeDynamicsResponse({"value": self.account_metadata_relationships})
@@ -671,6 +678,47 @@ class ContractBacklogMetricsTest(unittest.IsolatedAsyncioTestCase):
 
 
 class MarketingListQueryTest(unittest.IsolatedAsyncioTestCase):
+    async def test_client_falls_back_to_campaign_project_without_overwriting_list_project(self):
+        FakeAsyncClient.list_metadata_relationships = [
+            {"ReferencingAttribute": "campaignid", "ReferencedEntity": "campaign", "ReferencingEntityNavigationPropertyName": "campaignid_campaign"},
+            {"ReferencingAttribute": "new_projectid", "ReferencedEntity": "new_project", "ReferencingEntityNavigationPropertyName": "new_ProjectID"},
+        ]
+        FakeAsyncClient.campaign_metadata_relationships = [{"ReferencingAttribute": "new_project", "ReferencedEntity": "new_project", "ReferencingEntityNavigationPropertyName": "new_Project"}]
+        FakeAsyncClient.project_metadata_relationships = [{"ReferencingAttribute": "new_client", "ReferencedEntity": "account", "ReferencingEntityNavigationPropertyName": "new_Client"}]
+        campaign = {"name": "ESD - PE", "new_Project": {"new_Client": {"name": "Empire State Development"}}}
+        FakeAsyncClient.list_payload = {"value": [
+            {"listid": "campaign-client", "campaignid_campaign": campaign},
+            {"listid": "list-project", "new_ProjectID": {"new_Client": {"name": "Direct Project Client"}}, "campaignid_campaign": campaign},
+            {"listid": "empty-project", "campaignid_campaign": {"name": "No Project", "new_Project": None}},
+            {"listid": "no-campaign", "campaignid_campaign": None},
+        ]}
+        with (patch.object(dynamics, "API_URL", "https://example.crm/api/data/v9.2"),
+              patch.object(dynamics, "get_access_token", new=AsyncMock(return_value="token")),
+              patch.object(dynamics.httpx, "AsyncClient", new=FakeAsyncClient)):
+            rows = await get_marketing_lists(limit=25)
+        self.assertEqual([row["client_name"] for row in rows], ["Empire State Development", "Direct Project Client", "", ""])
+        self.assertEqual(rows[0]["campaign"], "ESD - PE")
+        self.assertIn("campaignid_campaign($select=name;$expand=new_Project($select=_new_client_value;$expand=new_Client($select=name)))", FakeAsyncClient.requested_urls[-1])
+        self.assertEqual(len(FakeAsyncClient.requested_urls), 6)
+
+    async def test_reads_project_client_in_same_list_query_and_preserves_missing_values(self):
+        FakeAsyncClient.list_metadata_relationships = [{"ReferencingAttribute": "new_projectid", "ReferencedEntity": "new_project", "ReferencingEntityNavigationPropertyName": "new_ProjectID"}]
+        FakeAsyncClient.project_metadata_relationships = [{"ReferencingAttribute": "new_client", "ReferencedEntity": "account", "ReferencingEntityNavigationPropertyName": "new_Client"}]
+        FakeAsyncClient.list_payload = {"value": [
+            {"listid": "linked", "new_ProjectID": {"new_Client": {"name": "Project Client"}}},
+            {"listid": "no-project", "new_ProjectID": None},
+            {"listid": "no-client", "new_ProjectID": {"new_Client": None}},
+        ]}
+        with (patch.object(dynamics, "API_URL", "https://example.crm/api/data/v9.2"),
+              patch.object(dynamics, "get_access_token", new=AsyncMock(return_value="token")),
+              patch.object(dynamics.httpx, "AsyncClient", new=FakeAsyncClient)):
+            rows = await get_marketing_lists(limit=25)
+            self.assertEqual([row["client_name"] for row in rows], ["Project Client", "", ""])
+            self.assertIn("new_ProjectID($select=_new_client_value;$expand=new_Client($select=name))", FakeAsyncClient.requested_urls[-1])
+            self.assertEqual(len(FakeAsyncClient.requested_urls), 6)
+            await get_marketing_lists(limit=25)
+            self.assertEqual(len(FakeAsyncClient.requested_urls), 7)
+
     def setUp(self):
         FakeAsyncClient.requested_urls = []
         FakeAsyncClient.deleted_urls = []
@@ -690,12 +738,13 @@ class MarketingListQueryTest(unittest.IsolatedAsyncioTestCase):
         FakeAsyncClient.delete_text = ""
         dynamics._MARKETING_LIST_CAMPAIGN_NAVIGATION_CACHE["loaded"] = False
         dynamics._MARKETING_LIST_CAMPAIGN_NAVIGATION_CACHE["value"] = None
+        dynamics._MARKETING_LIST_PROJECT_CLIENT_CACHE.update(loaded=False, value=(None, None, None))
+        FakeAsyncClient.project_metadata_relationships = []
+        FakeAsyncClient.campaign_metadata_relationships = []
         dynamics._MARKETING_LIST_CLIENT_LOOKUP_CACHE["loaded"] = False
         dynamics._MARKETING_LIST_CLIENT_LOOKUP_CACHE["value"] = None
         dynamics._ACCOUNT_WEBSITE_VISIT_NAVIGATION_CACHE["loaded"] = False
         dynamics._ACCOUNT_WEBSITE_VISIT_NAVIGATION_CACHE["value"] = None
-        dynamics._WEBSITE_VISIT_CLIENT_NAVIGATION_CACHE["loaded"] = False
-        dynamics._WEBSITE_VISIT_CLIENT_NAVIGATION_CACHE["value"] = None
 
     async def test_discovers_campaign_navigation_property_from_metadata(self):
         FakeAsyncClient.list_metadata_relationships = [
@@ -735,8 +784,8 @@ class MarketingListQueryTest(unittest.IsolatedAsyncioTestCase):
         ):
             await get_marketing_lists(limit=25)
 
-        self.assertEqual(len(FakeAsyncClient.requested_urls), 3)
-        requested_url = FakeAsyncClient.requested_urls[2]
+        self.assertEqual(len(FakeAsyncClient.requested_urls), 5)
+        requested_url = FakeAsyncClient.requested_urls[-1]
         self.assertNotIn("new_marketing_list_CampaignID", requested_url)
         self.assertNotIn("_new_campaignid_value", requested_url)
         self.assertNotIn("campaignid($select=name)", requested_url)
@@ -782,9 +831,9 @@ class MarketingListQueryTest(unittest.IsolatedAsyncioTestCase):
         ):
             await get_marketing_lists(limit=25)
 
-        self.assertEqual(len(FakeAsyncClient.requested_urls), 4)
-        failed_url = FakeAsyncClient.requested_urls[2]
-        retried_url = FakeAsyncClient.requested_urls[3]
+        self.assertEqual(len(FakeAsyncClient.requested_urls), 6)
+        failed_url = FakeAsyncClient.requested_urls[-2]
+        retried_url = FakeAsyncClient.requested_urls[-1]
         self.assertIn("campaignid($select=name)", failed_url)
         self.assertNotIn("campaignid($select=name)", retried_url)
         self.assertIn("_new_clientid_value", retried_url)
@@ -817,9 +866,9 @@ class MarketingListQueryTest(unittest.IsolatedAsyncioTestCase):
         ):
             await get_marketing_lists(limit=25)
 
-        self.assertEqual(len(FakeAsyncClient.requested_urls), 4)
-        failed_url = FakeAsyncClient.requested_urls[2]
-        retried_url = FakeAsyncClient.requested_urls[3]
+        self.assertEqual(len(FakeAsyncClient.requested_urls), 6)
+        failed_url = FakeAsyncClient.requested_urls[-2]
+        retried_url = FakeAsyncClient.requested_urls[-1]
         self.assertIn("_new_clientid_value", failed_url)
         self.assertNotIn("_createdby_value,_new_clientid_value", retried_url)
         self.assertIn("$expand=createdby($select=fullname)", retried_url)
@@ -1476,79 +1525,6 @@ class MarketingListConversionAnalysisTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["excluded_list_count"], 1)
         self.assertEqual(result["exclusion_rollups"][0]["code"], "admin_keyword")
         self.assertEqual(result["config"]["large_list_company_threshold"], 10)
-
-
-class LeadfeederVisitQueryTest(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        FakeAsyncClient.requested_urls = []
-        FakeAsyncClient.list_metadata_relationships = []
-        FakeAsyncClient.account_metadata_relationships = []
-        FakeAsyncClient.website_visit_metadata_relationships = []
-        FakeAsyncClient.list_payload = {"value": []}
-        FakeAsyncClient.member_account_payload = {"value": []}
-        FakeAsyncClient.website_visit_payload = {"value": []}
-        FakeAsyncClient.fail_new_client = False
-        FakeAsyncClient.fail_account_client_expand = False
-        dynamics._WEBSITE_VISIT_CLIENT_NAVIGATION_CACHE["loaded"] = False
-        dynamics._WEBSITE_VISIT_CLIENT_NAVIGATION_CACHE["value"] = None
-        dynamics._WEBSITE_VISIT_ACCOUNT_NAVIGATION_CACHE["loaded"] = False
-        dynamics._WEBSITE_VISIT_ACCOUNT_NAVIGATION_CACHE["value"] = None
-
-    async def test_loads_recent_leadfeeder_visits_with_client_and_account_names(self):
-        FakeAsyncClient.website_visit_payload = {
-            "value": [
-                {
-                    "lfapp_websitevisitid": "visit-1",
-                    "createdon": "2026-06-23T15:30:00Z",
-                    "_lfapp_account_value": "account-1",
-                    "_lfapp_account_value@OData.Community.Display.V1.FormattedValue": "Acme Corp",
-                    "_new_client_value": "client-1",
-                    "_new_client_value@OData.Community.Display.V1.FormattedValue": "Acme Client",
-                    "new_Client": {"name": "Acme Client"},
-                    "lfapp_Account": {
-                        "name": "Acme Corp",
-                        "address1_city": "Austin",
-                        "telephone1": "555-123-4567",
-                        "emailaddress1": "info@example.com",
-                    },
-                }
-            ]
-        }
-        FakeAsyncClient.website_visit_metadata_relationships = [
-            {
-                "ReferencingAttribute": "new_client",
-                "ReferencingEntityNavigationPropertyName": "new_Client",
-                "ReferencedEntity": "account",
-                "SchemaName": "new_lfapp_websitevisit_Client_Account",
-            },
-            {
-                "ReferencingAttribute": "lfapp_account",
-                "ReferencingEntityNavigationPropertyName": "lfapp_Account",
-                "ReferencedEntity": "account",
-                "SchemaName": "lfapp_websitevisit_Account_Account",
-            }
-        ]
-
-        with (
-            patch("backend.app.services.dynamics.API_URL", "https://example.crm/api/data/v9.2"),
-            patch("backend.app.services.dynamics.get_access_token", new=AsyncMock(return_value="token")),
-            patch("backend.app.services.dynamics.httpx.AsyncClient", new=FakeAsyncClient),
-        ):
-            rows = await get_leadfeeder_visits(limit=25)
-
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["visit_id"], "visit-1")
-        self.assertEqual(rows[0]["account_name"], "Acme Corp")
-        self.assertEqual(rows[0]["client_name"], "Acme Client")
-        self.assertEqual(rows[0]["city"], "Austin")
-        self.assertEqual(rows[0]["phone"], "555-123-4567")
-        self.assertEqual(rows[0]["email"], "info@example.com")
-        requested_url = next(url for url in FakeAsyncClient.requested_urls if "lfapp_websitevisits" in url)
-        self.assertIn("$select=lfapp_websitevisitid,createdon,_lfapp_account_value,_new_client_value", requested_url)
-        self.assertIn(
-            "$expand=new_Client($select=name),lfapp_Account($select=name,websiteurl,address1_country,address1_stateorprovince,address1_city,new_sector,telephone1,emailaddress1)",
-            requested_url,
-        )
 
 
 class PEQualifiedLeadMetricsTest(unittest.TestCase):

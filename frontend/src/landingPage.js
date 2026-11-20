@@ -13,7 +13,6 @@ import {
 } from "@mui/material";
 
 import EnrichmentWorkspace from "./components/EnrichmentWorkspace";
-import DuplicateAccounts from "./components/DuplicateAccounts";
 import MaintenanceHome from "./components/MaintenanceHome";
 import { API_BASE_URL, getAuthHeaders } from "./auth";
 import { prefetch } from "./apiClient";
@@ -34,13 +33,6 @@ const views = {
     title: "Enrichment",
     description: "Keep Dynamics account information complete and up to date.",
   },
-  duplicateAccounts: {
-    label: "Duplicate Accounts",
-    icon: "duplicate",
-    route: "/dashboard/duplicate-accounts",
-    title: "Duplicate Accounts",
-    description: "Find and review possible duplicate Dynamics account records before enrichment updates.",
-  },
 
 };
 
@@ -49,7 +41,6 @@ const iconPaths = {
   chart: "M5 19V9h3v10H5Zm5 0V5h3v14h-3Zm5 0v-7h3v7h-3Z",
   checklist: "M5.5 7.5 7 9l3-3 .9.9L7 10.8 4.6 8.4l.9-.9ZM13 8h7v2h-7V8ZM5.5 14.5 7 16l3-3 .9.9L7 17.8l-2.4-2.4.9-.9ZM13 15h7v2h-7v-2Z",
   collapse: "M15.5 5 8.5 12l7 7-1.4 1.4L5.7 12l8.4-8.4L15.5 5Zm4 0-7 7 7 7-1.4 1.4L9.7 12l8.4-8.4L19.5 5Z",
-  duplicate: "M7 7V5c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2v10c0 1.1-.9 2-2 2h-2v2c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V9c0-1.1.9-2 2-2h2Zm2 0h4c1.1 0 2 .9 2 2v6h2V5H9v2Zm-4 2v10h8V9H5Z",
   expand: "m8.5 5 7 7-7 7 1.4 1.4 8.4-8.4-8.4-8.4L8.5 5Zm-4 0 7 7-7 7 1.4 1.4 8.4-8.4-8.4-8.4L4.5 5Z",
   signout: "M10 17v-2h4V9h-4V7h6v10h-6Zm-1-1-5-4 5-4v3h6v2H9v3Z",
   sync: "M7 7h9.2l-2.6-2.6L15 3l5 5-5 5-1.4-1.4L16.2 9H7V7Zm10 10H7.8l2.6 2.6L9 21l-5-5 5-5 1.4 1.4L7.8 15H17v2Z",
@@ -58,7 +49,6 @@ const iconPaths = {
 const prefetchUrls = {
   home: `${API_BASE_URL}/maintenance/home`,
   enrichment: `${API_BASE_URL}/maintenance/enrichment/credits`,
-  duplicateAccounts: `${API_BASE_URL}/accounts/duplicates`,
 };
 
 function NavIcon({ name }) {
@@ -96,14 +86,14 @@ export default function LandingPage({ onLogout }) {
     prefetch(prefetchUrls[viewKey], {
       headers: getAuthHeaders(),
       params: viewKey === "home" ? { days: 14, limit: 25, view: "recent" } : undefined,
-      ttl: ["home", "enrichment"].includes(viewKey) ? 30 * 1000 : 5 * 60 * 1000,
+      ttl: 30 * 1000,
     });
   }
 
   useEffect(() => {
     function handlePopState() {
       const path = window.location.pathname;
-      if (path === "/dashboard/summary-analytics") window.history.replaceState(window.history.state, "", "/dashboard" + window.location.search + window.location.hash);
+      if (["/dashboard/summary-analytics", "/dashboard/duplicate-accounts"].includes(path)) window.history.replaceState(window.history.state, "", "/dashboard" + window.location.search + window.location.hash);
       if (["/dashboard/seamless", "/dashboard/data-quality"].includes(path)) window.history.replaceState(window.history.state, "", "/dashboard/enrichment" + window.location.search + window.location.hash);
       setActiveView(getViewForPath(window.location.pathname));
     }
@@ -395,7 +385,6 @@ export default function LandingPage({ onLogout }) {
 
               {activeView === "home" && <MaintenanceHome />}
               {activeView === "enrichment" && <EnrichmentWorkspace />}
-              {activeView === "duplicateAccounts" && <DuplicateAccounts />}
             </Stack>
           </Container>
         </Box>

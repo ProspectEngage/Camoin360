@@ -29,6 +29,16 @@ class EnrichmentWorkspaceApiTest(unittest.TestCase):
     def get(self, path="/maintenance/enrichment/credits", token="allowed"):
         return self.client.get(path, headers={"Authorization": f"Bearer {token}"} if token else {})
 
+    def test_retired_duplicate_account_endpoints_are_unavailable(self):
+        for path in ("/accounts/duplicates", "/accounts/duplicate-accounts"):
+            with self.subTest(path=path):
+                self.assertEqual(self.get(path).status_code, 404)
+        response = self.client.delete(
+            "/accounts/00000000-0000-0000-0000-000000000001",
+            headers={"Authorization": "Bearer allowed"},
+        )
+        self.assertEqual(response.status_code, 404)
+
     def test_credit_authorization(self):
         self.assertEqual(self.get(token=None).status_code, 401)
         self.assertEqual(self.get(token="denied").status_code, 403)
@@ -88,3 +98,12 @@ class EnrichmentWorkspaceApiTest(unittest.TestCase):
             response = self.get("/accounts/data-quality/search?enrichment_fields=true")
         self.assertEqual(response.status_code, 502)
         self.assertNotIn("SECRET", response.text)
+
+    def test_health_classification_validated_and_forwarded(self):
+        with patch.object(accounts, "search_accounts_data_quality_from_dynamics", new=AsyncMock(return_value={"data": []})) as search:
+            response = self.get("/accounts/data-quality/search?enrichment_fields=true&data_health=poor")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(search.await_args.kwargs["data_health"], "poor")
+            search.reset_mock()
+            self.assertEqual(self.get("/accounts/data-quality/search?data_health=unknown").status_code, 422)
+            search.assert_not_awaited()

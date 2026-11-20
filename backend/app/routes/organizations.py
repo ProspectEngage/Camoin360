@@ -46,16 +46,7 @@ async def fetch_organizations(
 @router.post("", response_model=OrganizationResponse, status_code=status.HTTP_201_CREATED)
 async def add_organization(request: OrganizationCreate, _user=Depends(require_user)):
     try:
-        return create_organization(
-            {
-                "organization_name": request.organization_name,
-                "city": request.city,
-                "state": request.state,
-                "contract_expiration": request.contract_expiration.isoformat()
-                if request.contract_expiration
-                else None,
-            }
-        )
+        return create_organization(request.model_dump(mode="json"))
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

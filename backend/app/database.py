@@ -7,6 +7,8 @@ from contextlib import contextmanager
 import psycopg
 from psycopg.rows import dict_row
 
+from .application_users_schema import initialize_application_users_schema
+
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -91,6 +93,8 @@ def initialize_database(force: bool = False, **connection_options):
             )
             """
         )
+        wrapped.execute("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS number_of_users INTEGER CHECK (number_of_users >= 0)")
+        wrapped.execute("ALTER TABLE organizations ADD COLUMN IF NOT EXISTS usage_type TEXT CHECK (usage_type IN ('prospecting', 'bre', 'both'))")
         wrapped.execute(
             "CREATE INDEX IF NOT EXISTS idx_organizations_name ON organizations (organization_name)"
         )
@@ -115,6 +119,7 @@ def initialize_database(force: bool = False, **connection_options):
         wrapped.execute(
             "CREATE INDEX IF NOT EXISTS idx_client_users_username ON client_users (username)"
         )
+        initialize_application_users_schema(wrapped)
         wrapped.execute(
             """
             CREATE TABLE IF NOT EXISTS software_subscriptions (
@@ -618,6 +623,20 @@ def initialize_database(force: bool = False, **connection_options):
         connection.close()
 
     _initialized = True
+
+
+@contextmanager
+def get_auth_database_connection():
+    """Auth-only transaction: never initializes, seeds, or changes business tables."""
+    connection = _connect()
+    try:
+        yield _CompatConnection(connection)
+        connection.commit()
+    except BaseException:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 @contextmanager

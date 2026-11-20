@@ -10,6 +10,24 @@ from backend.app.testing_support import temporary_database
 
 
 class ClientManagementRoutesTest(unittest.TestCase):
+    def test_organization_usage_round_trip_and_validation(self):
+        response = self.client.post("/organizations", json={"organization_name": "Usage Client", "number_of_users": 12, "usage_type": "both"})
+        self.assertEqual(response.status_code, 201)
+        organization_id = response.json()["id"]
+        self.assertEqual(response.json()["number_of_users"], 12)
+        self.assertEqual(response.json()["usage_type"], "both")
+        updated = self.client.patch(f"/organizations/{organization_id}", json={"number_of_users": 0, "usage_type": "bre"})
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["number_of_users"], 0)
+        listed = self.client.get("/organizations").json()["data"][0]
+        self.assertEqual(listed["usage_type"], "bre")
+        for values in ({"number_of_users": -1}, {"number_of_users": 1.5}, {"usage_type": "unknown"}):
+            self.assertEqual(self.client.patch(f"/organizations/{organization_id}", json=values).status_code, 422)
+        cleared = self.client.patch(f"/organizations/{organization_id}", json={"number_of_users": None, "usage_type": None})
+        self.assertEqual(cleared.status_code, 200)
+        self.assertIsNone(cleared.json()["number_of_users"])
+        self.assertIsNone(cleared.json()["usage_type"])
+
     def setUp(self):
         self.database_patch = temporary_database()
         self.database_patch.start()

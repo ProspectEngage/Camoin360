@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import {
-  Alert, Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle,
+  Alert, Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle,
   FormControl, InputLabel, ListSubheader, MenuItem, Paper, Select, Skeleton, Stack, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, TextField, ToggleButton, ToggleButtonGroup, Tooltip, Typography,
 } from "@mui/material";
@@ -91,11 +91,47 @@ export const enrichmentFields = [
 const fieldLabels = Object.fromEntries(enrichmentFields);
 const statusLabels = { updated: "Updated", no_updates_needed: "No fields added", no_match: "No usable match", skipped_credit_limit: "Credit limit", failed: "Failed" };
 const panel = { p: { xs: 2, sm: 3 }, border: "1px solid", borderColor: "divider", borderRadius: 2, minWidth: 0 };
+const filterFieldSx = {
+  minWidth: 0,
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 2.5, bgcolor: "background.paper", minHeight: 46,
+    transition: "border-color 150ms ease, box-shadow 150ms ease",
+    "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: "primary.main" },
+    "&.Mui-focused": { boxShadow: "0 0 0 3px rgba(25, 118, 210, 0.10)" },
+    "&.Mui-disabled": { bgcolor: "action.hover" },
+  },
+  "& .MuiSelect-select": { display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 },
+  "& .MuiInputLabel-root": { fontSize: "0.875rem", fontWeight: 600 },
+  "& .MuiSelect-icon": { color: "text.secondary", right: 10 },
+};
+const filterMenuProps = {
+  PaperProps: { elevation: 0, sx: {
+    mt: 0.75, p: 0.5, borderRadius: 3, border: "1px solid", borderColor: "divider",
+    boxShadow: "0 12px 36px rgba(15, 23, 42, 0.14)", maxHeight: 340,
+    "& .MuiMenuItem-root": { borderRadius: 1.5, minHeight: 40, mx: 0.5, my: 0.25, fontSize: "0.875rem" },
+    "& .MuiMenuItem-root.Mui-selected": { fontWeight: 600 },
+  } },
+};
+const healthOptions = [
+  ["all", "All", "text.disabled"], ["poor", "Poor", "error.main"],
+  ["needs_enrichment", "Needs Enrichment", "warning.main"],
+  ["good", "Good", "info.main"], ["excellent", "Excellent", "success.main"],
+];
+const healthLabel = (value) => {
+  const option = healthOptions.find(([key]) => key === value) || healthOptions[0];
+  return <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: 1 }}>
+    <Box component="span" aria-hidden="true" sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: option[2], flexShrink: 0 }} />{option[1]}
+  </Box>;
+};
+const selectedFieldsLabel = (values, placeholder) => values.length ? <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, overflow: "hidden" }}>
+  <Chip label={fieldLabels[values[0]]} size="small" sx={{ borderRadius: 1.5, fontWeight: 600, bgcolor: "action.selected", maxWidth: 135 }} />
+  {values.length > 1 && <Chip label={`+${values.length - 1}`} size="small" sx={{ borderRadius: 1.5 }} />}
+</Box> : <Box component="span" sx={{ color: "text.secondary" }}>{placeholder}</Box>;
 const number = (value) => typeof value === "number" && Number.isFinite(value) ? value.toLocaleString("en-US") : "—";
 const blank = (value) => value == null || (typeof value === "string" && !value.trim());
 
 export default function EnrichmentWorkspace() {
-  const [filters, setFilters] = useState({ search: "", missing: [], missingOperator: "and", country: "", state: "", city: "", sector: "" });
+  const [filters, setFilters] = useState({ search: "", missing: [], missingOperator: "and", country: "", state: "", city: "", sector: "", dataHealth: "all" });
   const [query, setQuery] = useState(null);
   const [rows, setRows] = useState([]);
   const [hasMore, setHasMore] = useState(false);
@@ -128,6 +164,7 @@ export default function EnrichmentWorkspace() {
     event.preventDefault();
     setResult(null); setRunError("");
     setQuery({ enrichment_fields: true, search: filters.search.trim(), missing_fields: filters.missing.join("|"), missing_operator: filters.missingOperator,
+      data_health: filters.dataHealth,
       needs_attention: filters.missing.length === 0, country: filters.country.trim() || "all",
       states: supportsStateFilter(filters.country) ? filters.state.trim() : "", cities: filters.city.trim(), sector: filters.sector.trim() || "all", page: 0, page_size: 25 });
   }
@@ -163,8 +200,8 @@ export default function EnrichmentWorkspace() {
           <Button type="submit" variant="contained" sx={{ minHeight: 44 }} disabled={running || loading}>Search Dynamics</Button>
         </Box>
         <Box sx={{ display: "grid", gap: 1.5, mt: 2, alignItems: "start", gridTemplateColumns: { xs: "minmax(0, 1fr)", sm: "repeat(2, minmax(0, 1fr))", lg: "repeat(5, minmax(0, 1fr))" } }}>
-          <TextField select label="Missing Information" size="small" InputLabelProps={{ shrink: true }}
-            SelectProps={{ multiple: true, displayEmpty: true, renderValue: (values) => values.length ? values.map((key) => fieldLabels[key]).join(", ") : "Any missing" }}
+          <TextField select label="Missing Information" size="small" sx={filterFieldSx} InputLabelProps={{ shrink: true }}
+            SelectProps={{ multiple: true, displayEmpty: true, MenuProps: filterMenuProps, renderValue: (values) => selectedFieldsLabel(values, "Any missing") }}
             value={filters.missing} onChange={changeFilter("missing")} disabled={running}
             helperText={filters.missing.length ? `Missing ${filters.missingOperator === "and" ? "all" : "any"} selected fields · Search to apply` : undefined}>
             <ListSubheader component="div" sx={{ bgcolor: "background.paper", py: 1, lineHeight: "normal" }} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
@@ -177,23 +214,26 @@ export default function EnrichmentWorkspace() {
             </ListSubheader>
             {enrichmentFields.map(([key, label]) => <MenuItem key={key} value={key}><Checkbox size="small" checked={filters.missing.includes(key)} />{label}</MenuItem>)}
           </TextField>
-          <TextField select label="Country" size="small" SelectProps={{ native: true }} value={filters.country} onChange={changeFilter("country")} disabled={running} InputLabelProps={{ shrink: true }}>
-            <option value="">All countries</option>{countries.map((country) => <option key={country} value={country}>{country}</option>)}
+          <TextField select label="Country" size="small" sx={filterFieldSx} SelectProps={{ displayEmpty: true, MenuProps: filterMenuProps }} value={filters.country} onChange={changeFilter("country")} disabled={running} InputLabelProps={{ shrink: true }}>
+            <MenuItem value="">All countries</MenuItem>{countries.map((country) => <MenuItem key={country} value={country}>{country}</MenuItem>)}
           </TextField>
-          <TextField select label="State / Province" size="small" SelectProps={{ native: true }} InputLabelProps={{ shrink: true }} value={filters.state} onChange={changeFilter("state")} disabled={running || !supportsStateFilter(filters.country)}
+          <TextField select label="State / Province" size="small" sx={filterFieldSx} SelectProps={{ displayEmpty: true, MenuProps: filterMenuProps }} InputLabelProps={{ shrink: true }} value={filters.state} onChange={changeFilter("state")} disabled={running || !supportsStateFilter(filters.country)}
             helperText={!supportsStateFilter(filters.country) ? "Select United States or Canada" : undefined}>
-            <option value="">All states / provinces</option>
-            {Object.entries(stateOptions[filters.country] || {}).sort((left, right) => left[1].localeCompare(right[1])).map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+            <MenuItem value="">All states / provinces</MenuItem>
+            {Object.entries(stateOptions[filters.country] || {}).sort((left, right) => left[1].localeCompare(right[1])).map(([code, name]) => <MenuItem key={code} value={code}>{name}</MenuItem>)}
           </TextField>
-          {[ ["city", "City"], ["sector", "Sector"] ].map(([key, label]) => <TextField key={key} label={label} size="small" value={filters[key]} onChange={changeFilter(key)} disabled={running} />)}
+          {[ ["city", "City"], ["sector", "Sector"] ].map(([key, label]) => <TextField key={key} label={label} size="small" sx={filterFieldSx} value={filters[key]} onChange={changeFilter(key)} disabled={running} />)}
+          <TextField select label="Data Health" size="small" sx={filterFieldSx} SelectProps={{ MenuProps: filterMenuProps, renderValue: healthLabel }} InputLabelProps={{ shrink: true }} value={filters.dataHealth} onChange={changeFilter("dataHealth")} disabled={running}>
+            {healthOptions.map(([value]) => <MenuItem key={value} value={value}>{healthLabel(value)}</MenuItem>)}
+          </TextField>
         </Box>
       </Box>
 
       {selected.length > 0 && <Box sx={{ mt: 2, p: 2, bgcolor: "action.hover", borderRadius: 1 }} aria-label="Selected Account actions">
         <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ xs: "stretch", sm: "center" }}>
           <Typography variant="body2" fontWeight={650}>{selected.length} Accounts selected</Typography>
-          <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}><InputLabel id="manual-fields-label">Fields to enrich</InputLabel>
-            <Select multiple label="Fields to enrich" labelId="manual-fields-label" value={fields} onChange={(event) => setFields(event.target.value)} disabled={running} renderValue={(values) => values.map((key) => fieldLabels[key]).join(", ")} sx={{ "& .MuiSelect-select": { whiteSpace: "normal" } }}>
+          <FormControl size="small" sx={{ ...filterFieldSx, flex: 1 }}><InputLabel id="manual-fields-label">Fields to enrich</InputLabel>
+            <Select multiple label="Fields to enrich" labelId="manual-fields-label" value={fields} onChange={(event) => setFields(event.target.value)} disabled={running} MenuProps={filterMenuProps} renderValue={(values) => selectedFieldsLabel(values, "Choose fields")}>
               {enrichmentFields.map(([key, label]) => <MenuItem key={key} value={key}><Checkbox size="small" checked={fields.includes(key)} />{label}</MenuItem>)}
             </Select></FormControl>
           <Button variant="contained" sx={{ minHeight: 44 }} disabled={!fields.length || running} onClick={() => { setRunError(""); setConfirm(true); }}>Enrich Selected</Button>
@@ -216,9 +256,9 @@ export default function EnrichmentWorkspace() {
       <TableContainer component={Box} tabIndex={0} role="region" aria-label="Accounts to Enrich table" sx={{ mt: 2, overflowX: "auto" }}>
         <Table aria-label="Accounts to Enrich" sx={{ minWidth: 720 }}><TableHead><TableRow>
           <TableCell padding="checkbox"><Checkbox size="small" inputProps={{ "aria-label": "Select Accounts on this page" }} checked={allSelected} indeterminate={selected.length > 0 && !allSelected} disabled={running || !eligibleIds.length} onChange={() => setSelected(allSelected ? [] : eligibleIds)} /></TableCell>
-          {["Account", "Location", "Missing Information", "Completeness", "Details"].map((label) => <TableCell key={label}>{label}</TableCell>)}
+          {["Account", "Location", "Missing Information", "Completeness", "Health Score", "Details"].map((label) => <TableCell key={label}>{label}</TableCell>)}
         </TableRow></TableHead><TableBody>
-          {loading ? Array.from({ length: 4 }, (_, index) => <TableRow key={index}>{Array.from({ length: 6 }, (_, cell) => <TableCell key={cell}><Skeleton aria-label="Loading Account" /></TableCell>)}</TableRow>) : rows.map((row, index) => {
+          {loading ? Array.from({ length: 4 }, (_, index) => <TableRow key={index}>{Array.from({ length: 7 }, (_, cell) => <TableCell key={cell}><Skeleton aria-label="Loading Account" /></TableCell>)}</TableRow>) : rows.map((row, index) => {
             const missing = enrichmentFields.filter(([key]) => blank(row[key])).map(([, label]) => label);
             return <TableRow key={row.accountid || index} hover>
               <TableCell padding="checkbox"><Checkbox size="small" inputProps={{ "aria-label": `Select ${row.name || "unnamed Account"}` }} checked={selected.includes(row.accountid)} disabled={running || !row.accountid} onChange={() => toggle(row.accountid)} /></TableCell>
@@ -226,10 +266,11 @@ export default function EnrichmentWorkspace() {
               <TableCell sx={{ minWidth: 140, maxWidth: 190, overflowWrap: "anywhere" }}>{[row.address1_city, row.address1_stateorprovince, row.address1_country].filter((value) => !blank(value)).join(", ") || "—"}</TableCell>
               <TableCell sx={{ minWidth: 180, maxWidth: 280, overflowWrap: "anywhere" }}>{missing.join(", ") || "Complete"}</TableCell>
               <TableCell><Tooltip title="Completeness of Website, Phone, Description, Employees and location. This is not enrichment eligibility or success."><Typography variant="body2">{typeof row.data_quality_score === "number" ? `${row.data_quality_score}%` : "—"}</Typography></Tooltip></TableCell>
+              <TableCell>{typeof row.cr73c_datahealthscore === "number" ? `${row.cr73c_datahealthscore} / 100` : "Unscored"}</TableCell>
               <TableCell><Button size="small" aria-label={`Details for ${row.name || "unnamed Account"}`} onClick={() => setDetail(row)}>Details</Button></TableCell>
             </TableRow>;
           })}
-          {!loading && !rows.length && <TableRow><TableCell colSpan={6} sx={{ py: 5, textAlign: "center", color: "text.secondary" }}>{query ? error ? "Account search unavailable." : "No Accounts matched your search." : "Search Dynamics to find Accounts that need enrichment."}</TableCell></TableRow>}
+          {!loading && !rows.length && <TableRow><TableCell colSpan={7} sx={{ py: 5, textAlign: "center", color: "text.secondary" }}>{query ? error ? "Account search unavailable." : "No Accounts matched your search." : "Search Dynamics to find Accounts that need enrichment."}</TableCell></TableRow>}
         </TableBody></Table>
       </TableContainer>
       {query && !loading && !error && <Stack direction="row" spacing={2} alignItems="center" justifyContent="flex-end" sx={{ mt: 2 }}><Typography variant="caption" color="text.secondary">Page {query.page + 1} · {rows.length} Accounts</Typography><Button disabled={query.page === 0 || running} onClick={() => setQuery((previous) => ({ ...previous, page: previous.page - 1, force: false }))}>Previous</Button><Button disabled={!hasMore || running || query.page >= 199} onClick={() => setQuery((previous) => ({ ...previous, page: previous.page + 1, force: false }))}>Next</Button></Stack>}
