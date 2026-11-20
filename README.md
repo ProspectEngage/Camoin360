@@ -1819,8 +1819,37 @@ identity isolation, fresh-process/multiple-instance persistence, signing-key
 mismatch, empty startup without provisioning, concurrent/one-time bootstrap,
 rollback on interruption, and schema/default/index/constraint drift. Historical
 backup utility tests remain and do not authorize importing abandoned JSON accounts.
+Password-format compatibility tests use synthetic data; no JSON accounts are
+imported automatically.
 
 Production target, runtime settings, and deployment revision remain unverified
 until the approved operator checks them. Historical snapshot-inventory gaps are
 not prerequisites for this fresh-account deployment, because no snapshots are
 used by live authentication or bootstrap.
+
+### Render and Vercel release prerequisites
+
+The operator module must be included in the deployed release; it is not present
+in an older running Render build. Do not try to execute the new module from that
+old build. Run auth-only preparation from the reviewed new checkout with an
+approved reachable database connection, or from an approved pre-deploy job using
+the new built artifact, before the new backend's lifespan verification starts.
+Do not put administrator bootstrap in the application start command.
+
+Supported native-Python entrypoints, without changing the current root setting:
+
+- Repository root: `python -m uvicorn backend.app.main:app --host 0.0.0.0 --port "$PORT"`.
+  Operator module: `python -m backend.app.workers.application_auth_admin`.
+- Backend root: `python -m uvicorn app.main:app --host 0.0.0.0 --port "$PORT"`.
+  Operator module: `python -m app.workers.application_auth_admin`.
+
+Both entrypoints and operator module paths were smoke-tested locally on PostgreSQL
+18. Actual Render branch/root/build/start settings, environment values, and the
+Vercel Production Branch must still be confirmed in their dashboards. Git branch
+names and historical deployments are evidence, not provider configuration.
+Prepare and verify the schema before activating the new backend; its startup
+intentionally fails if auth schema or configuration is missing. Use a coordinated
+JWT-aware frontend/backend authentication window, keeping old JSON backend
+instances out of the new traffic pool. Bootstrap once after approval, then verify
+administrator login and a newly created test user's module permissions. Pin a
+PostgreSQL-capable rollback artifact; the previous JSON backend is not safe rollback.
