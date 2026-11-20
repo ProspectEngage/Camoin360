@@ -30,6 +30,7 @@ from .routes.maintenance import router as maintenance_router
 from .routes.organizations import router as organizations_router
 from .routes.quickbooks import router as quickbooks_router
 from .routes.software_subscriptions import router as software_subscriptions_router
+from .routes.surveys import router as surveys_router
 
 from .services.newsletter import run_snapshot_scheduler
 
@@ -136,6 +137,7 @@ app.include_router(maintenance_router)
 app.include_router(organizations_router)
 app.include_router(quickbooks_router)
 app.include_router(software_subscriptions_router)
+app.include_router(surveys_router)
 
 
 @app.get("/")

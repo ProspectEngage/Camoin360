@@ -29,6 +29,7 @@ import {
 } from "recharts";
 
 import { API_BASE_URL, getApiErrorMessage, getAuthHeaders, handleUnauthorized } from "../auth";
+import { FullWidthFilterRow, ManagementSectionHeading, managementButtonSx, managementCardSx } from "./UiPrimitives";
 
 const API_URL = `${API_BASE_URL}/marketing/website-visits`;
 const SEO_API_URL = `${API_BASE_URL}/marketing/seo-results`;
@@ -394,13 +395,28 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
             <Alert severity="warning">Search Console metrics are unavailable: {seoSyncStatus.last_error}</Alert>
           ) : null}
 
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            justifyContent="space-between"
-            alignItems={{ xs: "stretch", sm: "center" }}
-            spacing={1.5}
-          >
-            <Stack direction="row" flexWrap="wrap" gap={0.75}>
+          <Paper elevation={0} sx={{ ...managementCardSx, p: { xs: 2.5, md: 3 } }}>
+            <Stack spacing={2}>
+              <ManagementSectionHeading
+                action={
+                  <Stack alignItems={{ xs: "flex-start", sm: "flex-end" }} spacing={0.75}>
+                    <Typography color="text.secondary" fontSize="0.75rem">{statusLabel}</Typography>
+                    <Button
+                      disabled={isRefreshing}
+                      onClick={() => fetchMetrics({ refresh: true, silent: true })}
+                      size="small"
+                      sx={managementButtonSx}
+                      variant="outlined"
+                    >
+                      {isRefreshing || syncStatus?.status === "syncing" ? "Refreshing" : "Refresh"}
+                    </Button>
+                  </Stack>
+                }
+                description="Choose the traffic window for the website and target-industry charts."
+                eyebrow="Website activity"
+                title="Traffic range"
+              />
+            <FullWidthFilterRow minItemWidth={140}>
               {RANGE_OPTIONS.map((option) => {
                 const isActive = range === option.value;
                 return (
@@ -411,9 +427,10 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
                     variant={isActive ? "contained" : "outlined"}
                     disableElevation
                     sx={{
-                      borderRadius: 1,
+                      borderRadius: 1.5,
                       fontSize: "0.75rem",
                       fontWeight: 700,
+                      minHeight: 38,
                       minWidth: 0,
                       ...(!isActive && { borderColor: "divider", color: "text.secondary" }),
                     }}
@@ -422,22 +439,9 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
                   </Button>
                 );
               })}
+            </FullWidthFilterRow>
             </Stack>
-            <Stack alignItems={{ xs: "flex-start", sm: "flex-end" }} spacing={0.75}>
-              <Typography color="text.secondary" fontSize="0.75rem">
-                {statusLabel}
-              </Typography>
-              <Button
-                disabled={isRefreshing}
-                onClick={() => fetchMetrics({ refresh: true, silent: true })}
-                size="small"
-                variant="outlined"
-                sx={{ borderRadius: 1, fontSize: "0.75rem", fontWeight: 700 }}
-              >
-                {isRefreshing || syncStatus?.status === "syncing" ? "Refreshing" : "Refresh"}
-              </Button>
-            </Stack>
-          </Stack>
+          </Paper>
 
       <Box
         sx={{
@@ -449,11 +453,8 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
         <Paper
           elevation={0}
           sx={{
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 2,
+            ...managementCardSx,
             p: { xs: 2, md: 2.5 },
-            backgroundColor: "common.white",
           }}
         >
           <Stack spacing={0.5} sx={{ mb: 2 }}>
@@ -480,11 +481,8 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
         <Paper
           elevation={0}
           sx={{
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 2,
+            ...managementCardSx,
             p: { xs: 2, md: 2.5 },
-            backgroundColor: "common.white",
           }}
         >
           <Stack spacing={0.5} sx={{ mb: 2 }}>
@@ -524,11 +522,8 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
         <Paper
           elevation={0}
           sx={{
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 2,
+            ...managementCardSx,
             p: { xs: 2, md: 2.5 },
-            backgroundColor: "common.white",
           }}
         >
           <Stack
@@ -549,7 +544,7 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
               onClick={() => fetchSeoMetrics({ refresh: true })}
               size="small"
               variant="outlined"
-              sx={{ borderRadius: 1, fontSize: "0.75rem", fontWeight: 700 }}
+              sx={managementButtonSx}
             >
               {isSeoRefreshing || seoSyncStatus?.status === "syncing" ? "Refreshing" : "Refresh SEO"}
             </Button>

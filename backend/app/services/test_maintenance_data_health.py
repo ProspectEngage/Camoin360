@@ -101,6 +101,9 @@ class DataHealthAggregationTest(unittest.IsolatedAsyncioTestCase):
 class DataHealthPersistenceTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         isolated = temporary_database(); isolated.start(); self.addCleanup(isolated.stop)
+        # Keep completion timestamps on the same clock as the synthetic refresh times.
+        clock = patch.object(observations, "utc_now", return_value=NOW)
+        clock.start(); self.addCleanup(clock.stop)
         self.collect = AsyncMock(return_value=snapshot())
         patcher = patch.object(health, "collect_data_health", self.collect); patcher.start(); self.addCleanup(patcher.stop)
 

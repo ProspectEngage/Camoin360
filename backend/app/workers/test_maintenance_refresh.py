@@ -75,6 +75,9 @@ class WorkerRefreshTest(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         fixtures.MaintenanceObservationTest.setUp(self)
+        # Cadence assertions must use synthetic time for refresh completion too.
+        clock = patch.object(service, "utc_now", return_value=NOW)
+        clock.start(); self.addCleanup(clock.stop)
         self.worker_config = worker.WorkerConfig()
         self.usage_path = Path(__file__).resolve().parents[1] / "services/usage_tracker.json"
         self.usage_before = self.usage_path.read_bytes()

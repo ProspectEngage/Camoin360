@@ -1,9 +1,11 @@
 import { filterReportingRows, reportingParams } from "../reportingPeriod";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import axios from "axios";
+import { getCached } from "../apiClient";
 import {
   Alert,
   Box,
+  Button,
+  Chip,
   CircularProgress,
   FormControl,
   InputLabel,
@@ -11,6 +13,14 @@ import {
   Paper,
   Select,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TablePagination,
+  TableRow,
+  TextField,
   Typography,
 } from "@mui/material";
 import {
@@ -26,32 +36,9 @@ import {
 } from "recharts";
 
 import { API_BASE_URL, getApiErrorMessage, getAuthHeaders, handleUnauthorized } from "../auth";
+import { subtleTableHeadCellSx } from "./UiPrimitives";
 
 const API_URL = `${API_BASE_URL}/pe-qualified-leads`;
-const CURRENT_YEAR = new Date().getFullYear();
-const ALL_TIME_YEAR_VALUE = "all_time";
-const YEAR_OPTIONS = [
-  { label: "All Time", value: ALL_TIME_YEAR_VALUE },
-  ...Array.from({ length: 6 }, (_, index) => {
-    const year = CURRENT_YEAR - index;
-    return { label: String(year), value: year };
-  }),
-];
-const MONTH_OPTIONS = [
-  { label: "All Months", value: "" },
-  { label: "January", value: 1 },
-  { label: "February", value: 2 },
-  { label: "March", value: 3 },
-  { label: "April", value: 4 },
-  { label: "May", value: 5 },
-  { label: "June", value: 6 },
-  { label: "July", value: 7 },
-  { label: "August", value: 8 },
-  { label: "September", value: 9 },
-  { label: "October", value: 10 },
-  { label: "November", value: 11 },
-  { label: "December", value: 12 },
-];
 
 const tooltipStyle = {
   contentStyle: {
@@ -62,17 +49,63 @@ const tooltipStyle = {
   },
 };
 
+const leadColumns = [
+  { key: "prospect_name", label: "Prospect", width: 300 },
+  { key: "client_name", label: "Client", width: 260 },
+  { key: "status", label: "Status", width: 125 },
+  { key: "createdon", label: "Created", width: 165 },
+];
+const leadTableMinWidth = leadColumns.reduce((width, column) => width + column.width, 0);
+
+export function filterAndSortQualifiedLeads(leads, query, clientFilter, sortBy) {
+  const search = query.trim().toLocaleLowerCase();
+  return leads
+    .filter((lead) => !clientFilter || lead.client_name === clientFilter)
+    .filter((lead) => [lead.prospect_name, lead.client_name].some((value) =>
+      String(value ?? "").toLocaleLowerCase().includes(search)
+    ))
+    .sort((first, second) => {
+      if (sortBy === "oldest") {
+        return String(first.createdon || "9999-12-31").localeCompare(String(second.createdon || "9999-12-31"));
+      }
+      if (sortBy === "client") {
+        return String(first.client_name || "").localeCompare(String(second.client_name || ""))
+          || String(first.prospect_name || "").localeCompare(String(second.prospect_name || ""));
+      }
+      if (sortBy === "prospect") {
+        return String(first.prospect_name || "").localeCompare(String(second.prospect_name || ""));
+      }
+      return String(second.createdon || "0000-00-00").localeCompare(String(first.createdon || "0000-00-00"));
+    });
+}
+
+function formatLeadDate(value) {
+  if (!value) return "Not set";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString();
+}
+
+function escapeCsvValue(value) {
+  return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
 export default function PEQualifiedLeads({ filters } = {}) {
   const isMountedRef = useRef(true);
   const latestRequestIdRef = useRef(0);
-  const [selectedYear, setSelectedYear] = useState(ALL_TIME_YEAR_VALUE);
-  const [selectedMonth, setSelectedMonth] = useState("");
+  const forceNextRequestRef = useRef(false);
   const [leads, setLeads] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [leadSearch, setLeadSearch] = useState("");
+  const [clientFilter, setClientFilter] = useState("");
+  const [leadSort, setLeadSort] = useState("newest");
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
   const [rollups, setRollups] = useState([]);
   const [yearlyRollups, setYearlyRollups] = useState([]);
   const [statusLabel, setStatusLabel] = useState("Qualified");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const fetchLeads = useCallback(async () => {
     if (!isMountedRef.current) return;
@@ -83,21 +116,21 @@ export default function PEQualifiedLeads({ filters } = {}) {
 
     try {
       const params = reportingParams(filters);
-      if (selectedYear !== ALL_TIME_YEAR_VALUE) {
-        params.year = selectedYear;
-      }
-      if (selectedYear !== ALL_TIME_YEAR_VALUE && selectedMonth) {
-        params.month = selectedMonth;
-      }
+      params.limit = 5000;
 
-      const response = await axios.get(API_URL, {
+      const force = forceNextRequestRef.current;
+      forceNextRequestRef.current = false;
+      const response = await getCached(API_URL, {
+        force,
         headers: getAuthHeaders(),
         params,
+        timeout: 60000,
       });
 
       if (!isMountedRef.current || requestId !== latestRequestIdRef.current) return;
 
       setLeads(response.data?.data || []);
+      setTotalCount(response.data?.total_count ?? response.data?.data?.length ?? 0);
       setRollups(response.data?.rollups || []);
       setYearlyRollups(filterReportingRows(response.data?.yearly_rollups, filters));
       setStatusLabel(response.data?.status || "Qualified");
@@ -110,6 +143,7 @@ export default function PEQualifiedLeads({ filters } = {}) {
 
       setError(getApiErrorMessage(fetchError, "Unable to load ProspectEngage qualified leads."));
       setLeads([]);
+      setTotalCount(0);
       setRollups([]);
       setYearlyRollups([]);
     } finally {
@@ -117,7 +151,7 @@ export default function PEQualifiedLeads({ filters } = {}) {
 
       setIsLoading(false);
     }
-  }, [selectedMonth, selectedYear, filters]);
+  }, [filters, refreshKey]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -128,21 +162,7 @@ export default function PEQualifiedLeads({ filters } = {}) {
     };
   }, [fetchLeads]);
 
-  useEffect(() => {
-    if (selectedYear === ALL_TIME_YEAR_VALUE && selectedMonth) {
-      setSelectedMonth("");
-    }
-  }, [selectedMonth, selectedYear, filters]);
-
-  const periodLabel = useMemo(() => {
-    if (filters && Object.keys(reportingParams(filters)).length) return "the selected reporting period";
-    if (selectedYear === ALL_TIME_YEAR_VALUE) {
-      return "all time";
-    }
-
-    const month = MONTH_OPTIONS.find((option) => option.value === selectedMonth);
-    return selectedMonth ? `${month?.label || ""} ${selectedYear}` : selectedYear;
-  }, [selectedMonth, selectedYear, filters]);
+  const periodLabel = Object.keys(reportingParams(filters)).length ? "the selected reporting period" : "all time";
   const leadsByClient = useMemo(() => {
     if (rollups.length) {
       return rollups;
@@ -164,6 +184,41 @@ export default function PEQualifiedLeads({ filters } = {}) {
       .sort((a, b) => b.qualified_leads - a.qualified_leads || a.client_name.localeCompare(b.client_name));
   }, [leads, rollups]);
   const chartHeight = Math.max(360, leadsByClient.length * 34 + 48);
+  const clientOptions = useMemo(
+    () => [...new Set(leads.map((lead) => lead.client_name).filter(Boolean))].sort((first, second) => first.localeCompare(second)),
+    [leads]
+  );
+  const visibleLeads = useMemo(
+    () => filterAndSortQualifiedLeads(leads, leadSearch, clientFilter, leadSort),
+    [leads, leadSearch, clientFilter, leadSort]
+  );
+  const paginatedLeads = visibleLeads.slice(page * rowsPerPage, (page + 1) * rowsPerPage);
+
+  useEffect(() => {
+    if (clientFilter && !clientOptions.includes(clientFilter)) {
+      setClientFilter("");
+      setPage(0);
+    }
+  }, [clientFilter, clientOptions]);
+
+  useEffect(() => {
+    const lastPage = Math.max(0, Math.ceil(visibleLeads.length / rowsPerPage) - 1);
+    if (page > lastPage) setPage(lastPage);
+  }, [page, rowsPerPage, visibleLeads.length]);
+
+  function exportVisibleLeads() {
+    if (!visibleLeads.length) return;
+    const rows = [
+      leadColumns.map((column) => escapeCsvValue(column.label)).join(","),
+      ...visibleLeads.map((lead) => leadColumns.map((column) => escapeCsvValue(lead[column.key])).join(",")),
+    ];
+    const downloadUrl = URL.createObjectURL(new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    link.download = "pe-qualified-leads.csv";
+    link.click();
+    URL.revokeObjectURL(downloadUrl);
+  }
 
   return (
     <Stack spacing={2.5}>
@@ -266,6 +321,149 @@ export default function PEQualifiedLeads({ filters } = {}) {
           )}
         </Paper>
       </Box>
+      <Paper
+        elevation={0}
+        sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, minWidth: 0, overflow: "hidden" }}
+      >
+        <Stack
+          alignItems={{ xs: "stretch", md: "center" }}
+          direction={{ xs: "column", md: "row" }}
+          justifyContent="space-between"
+          spacing={1.5}
+          sx={{ px: { xs: 2, md: 3 }, py: 2.5 }}
+        >
+          <Box sx={{ minWidth: 0 }}>
+            <Typography color="primary.main" fontWeight={800} variant="h6">
+              Qualified Lead Details
+            </Typography>
+            <Typography color="text.secondary" variant="body2">
+              Prospects marked {statusLabel} for {periodLabel}.
+            </Typography>
+          </Box>
+          <Stack alignItems={{ xs: "stretch", sm: "center" }} direction={{ xs: "column", sm: "row" }} spacing={1}>
+            <Chip label={`${leads.length.toLocaleString()} loaded`} sx={{ fontWeight: 700 }} />
+            <Button disabled={isLoading} onClick={() => { forceNextRequestRef.current = true; setRefreshKey((key) => key + 1); }} variant="outlined">
+              Refresh leads
+            </Button>
+            <Button disabled={!visibleLeads.length || isLoading} onClick={exportVisibleLeads} variant="outlined">
+              Export filtered CSV
+            </Button>
+          </Stack>
+        </Stack>
+        <Typography color="text.secondary" sx={{ px: { xs: 2, md: 3 }, pb: 1 }} variant="caption">
+          Results are cached for up to 5 minutes. Refresh leads to check for newer data.
+        </Typography>
+        <Box
+          sx={{
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            display: "grid",
+            gap: 1.5,
+            gridTemplateColumns: { xs: "1fr", md: "minmax(220px, 1fr) minmax(180px, 240px) minmax(180px, 240px)" },
+            px: { xs: 2, md: 3 },
+            py: 2,
+          }}
+        >
+          <TextField
+            label="Search leads"
+            onChange={(event) => { setLeadSearch(event.target.value); setPage(0); }}
+            placeholder="Prospect or client name"
+            size="small"
+            value={leadSearch}
+          />
+          <FormControl size="small">
+            <InputLabel id="pe-lead-client-filter-label">Client</InputLabel>
+            <Select
+              label="Client"
+              labelId="pe-lead-client-filter-label"
+              onChange={(event) => { setClientFilter(event.target.value); setPage(0); }}
+              value={clientFilter}
+            >
+              <MenuItem value="">All clients</MenuItem>
+              {clientOptions.map((client) => <MenuItem key={client} value={client}>{client}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <FormControl size="small">
+            <InputLabel id="pe-lead-sort-label">Sort leads</InputLabel>
+            <Select
+              label="Sort leads"
+              labelId="pe-lead-sort-label"
+              onChange={(event) => { setLeadSort(event.target.value); setPage(0); }}
+              value={leadSort}
+            >
+              <MenuItem value="newest">Newest first</MenuItem>
+              <MenuItem value="oldest">Oldest first</MenuItem>
+              <MenuItem value="client">Client (A–Z)</MenuItem>
+              <MenuItem value="prospect">Prospect (A–Z)</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+        {totalCount > leads.length && !isLoading ? (
+          <Alert severity="info" sx={{ borderRadius: 0 }}>
+            Showing the first {leads.length.toLocaleString()} of {totalCount.toLocaleString()} leads. Search and sort apply to the loaded records.
+          </Alert>
+        ) : null}
+        <Typography color="text.secondary" sx={{ display: { xs: "none", md: "block", lg: "none" }, px: 2, pt: 1.5 }} variant="caption">
+          Scroll horizontally to see all lead details.
+        </Typography>
+        <Stack spacing={1.5} sx={{ display: { xs: "flex", md: "none" }, px: 2, py: 2 }}>
+          {isLoading && <Box sx={{ display: "flex", justifyContent: "center", py: 3 }}><CircularProgress size={28} /></Box>}
+          {paginatedLeads.map((lead) => (
+            <Paper elevation={0} key={lead.id || `${lead.prospect_name}-${lead.createdon}`} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2 }}>
+              <Stack spacing={0.75}>
+                <Typography fontWeight={800} sx={{ overflowWrap: "anywhere" }}>{lead.prospect_name || "Missing prospect"}</Typography>
+                <Typography variant="body2"><strong>Client:</strong> {lead.client_name || "Missing"}</Typography>
+                <Typography variant="body2"><strong>Status:</strong> {lead.status || statusLabel}</Typography>
+                <Typography variant="body2"><strong>Created:</strong> {formatLeadDate(lead.createdon)}</Typography>
+              </Stack>
+            </Paper>
+          ))}
+          {!isLoading && !paginatedLeads.length && <Typography color="text.secondary">{leads.length ? "No leads match these filters." : "No qualified leads match this period."}</Typography>}
+        </Stack>
+        <TableContainer sx={{ display: { xs: "none", md: "block" }, overflowX: "auto" }}>
+          <Table size="small" sx={{ minWidth: leadTableMinWidth, tableLayout: "fixed" }}>
+            <TableHead>
+              <TableRow>
+                {leadColumns.map((column) => (
+                  <TableCell key={column.key} sx={{ ...subtleTableHeadCellSx, px: 2, width: column.width }}>
+                    {column.label}
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {isLoading ? (
+                <TableRow><TableCell align="center" colSpan={leadColumns.length} sx={{ py: 6 }}><CircularProgress size={28} /></TableCell></TableRow>
+              ) : paginatedLeads.length ? (
+                paginatedLeads.map((lead) => (
+                  <TableRow hover key={lead.id || `${lead.prospect_name}-${lead.createdon}`} sx={{ "& td": { px: 2, py: 1.5, verticalAlign: "middle" } }}>
+                    <TableCell sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>{lead.prospect_name || "Missing"}</TableCell>
+                    <TableCell sx={{ overflowWrap: "anywhere" }}>{lead.client_name || "Missing"}</TableCell>
+                    <TableCell>{lead.status || statusLabel}</TableCell>
+                    <TableCell>{formatLeadDate(lead.createdon)}</TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell align="center" colSpan={leadColumns.length} sx={{ color: "text.secondary", py: 6 }}>
+                    {leads.length ? "No leads match these filters." : "No qualified leads match this period."}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+        <TablePagination
+          component="div"
+          count={visibleLeads.length}
+          onPageChange={(_event, nextPage) => setPage(nextPage)}
+          onRowsPerPageChange={(event) => { setRowsPerPage(Number(event.target.value)); setPage(0); }}
+          page={page}
+          rowsPerPage={rowsPerPage}
+          rowsPerPageOptions={[10, 25, 50, 100]}
+          sx={{ "& .MuiTablePagination-toolbar": { flexWrap: "wrap", justifyContent: "flex-end", py: 1, rowGap: 1 } }}
+        />
+      </Paper>
     </Stack>
   );
 }

@@ -234,3 +234,20 @@ print('fresh_process_verified')
     assert result.stdout.strip() == "fresh_process_verified"
     with TestClient(main.app) as second:
         assert second.get("/auth/users", headers={"Authorization": "Bearer " + token}).status_code == 200
+
+
+def test_other_admin_role_can_manage_users():
+    user = {"email": "other@synthetic.invalid", "role": "admin", "modules": ["admin"]}
+    assert auth.require_admin_user(user) is user
+
+
+def test_other_admin_role_is_protected_from_edit_and_delete(configured):
+    with database.get_auth_database_connection() as connection:
+        other = bootstrap_administrator(connection, name="Other administrator", email="other@synthetic.invalid",
+                                        password="synthetic-other-password", organization_id=7, signing_key=SECRET)
+    with TestClient(main.app) as client:
+        authorization = {"Authorization": "Bearer " + login(client, other.email, "synthetic-other-password")["token"]}
+        assert client.patch(f"/auth/users/{other.email}", headers=authorization,
+                            json={"name": "Changed"}).status_code == 403
+        assert client.delete(f"/auth/users/{other.email}", headers=authorization).status_code == 403
+        assert users.get_user(other.email) == other

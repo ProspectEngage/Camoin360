@@ -11,7 +11,6 @@ import {
   DialogContent,
   FormControl,
   InputLabel,
-  Menu,
   MenuItem,
   Paper,
   Select,
@@ -69,14 +68,14 @@ const initialResetPasswordValues = {
 };
 
 const columns = [
-  { key: "organization_name", label: "Organization Name", width: 280 },
-  { key: "city", label: "City", width: 200 },
-  { key: "state", label: "State", width: 160 },
+  { key: "organization_name", label: "Organization", width: 280 },
+  { key: "city", label: "City", width: 150 },
+  { key: "state", label: "State", width: 100 },
   { key: "number_of_users", label: "Number of Users", width: 150 },
   { key: "usage_type", label: "Used For", width: 170 },
   { key: "user_count", label: "Portal Accounts", width: 150 },
-  { key: "contract_expiration", label: "Contract Expiration", width: 190 },
-  { key: "actions", label: "Actions", width: 180 },
+  { key: "contract_expiration", label: "Contract Expiration", width: 160 },
+  { key: "actions", label: "Actions", width: 230 },
 ];
 
 const usageLabels = { prospecting: "Prospecting", bre: "BRE", both: "Both" };
@@ -110,11 +109,6 @@ const detailUserColumns = [
   { key: "actions", label: "Actions", width: 180 },
 ];
 
-const actionFieldsOptions = [
-  { key: "organization", label: "Add Organization" },
-  { key: "export", label: "Export" },
-];
-
 const tableMinWidth = columns.reduce((totalWidth, column) => totalWidth + column.width, 0);
 const userTableMinWidth = detailUserColumns.reduce((totalWidth, column) => totalWidth + column.width, 0);
 
@@ -133,6 +127,28 @@ function getDateInputValue(value) {
 
 function escapeCsvValue(value) {
   return `"${String(value ?? "").replaceAll('"', '""')}"`;
+}
+
+export function filterAndSortClients(clients, query, sortBy) {
+  const search = query.trim().toLocaleLowerCase();
+  const matchingClients = clients.filter((client) =>
+    [client.organization_name, client.city, client.state].some((value) =>
+      String(value ?? "").toLocaleLowerCase().includes(search)
+    )
+  );
+
+  return [...matchingClients].sort((first, second) => {
+    if (sortBy === "users_desc") {
+      return Number(second.user_count || 0) - Number(first.user_count || 0)
+        || String(first.organization_name || "").localeCompare(String(second.organization_name || ""));
+    }
+    if (sortBy === "expiration_asc") {
+      return (first.contract_expiration ? String(first.contract_expiration).slice(0, 10) : "9999-12-31")
+        .localeCompare(second.contract_expiration ? String(second.contract_expiration).slice(0, 10) : "9999-12-31")
+        || String(first.organization_name || "").localeCompare(String(second.organization_name || ""));
+    }
+    return String(first.organization_name || "").localeCompare(String(second.organization_name || ""));
+  });
 }
 
 function SummaryMetricCard({ label, value, description }) {
@@ -167,9 +183,11 @@ export default function PEClients() {
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isUsersLoading, setIsUsersLoading] = useState(true);
+  const [hasLoadedUsers, setHasLoadedUsers] = useState(false);
   const [error, setError] = useState("");
   const [usersError, setUsersError] = useState("");
-  const [actionsAnchor, setActionsAnchor] = useState(null);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientSort, setClientSort] = useState("name_asc");
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isEditOrganizationDialogOpen, setIsEditOrganizationDialogOpen] = useState(false);
   const [isUserDialogOpen, setIsUserDialogOpen] = useState(false);
@@ -199,7 +217,11 @@ export default function PEClients() {
   const selectedOrganizationUsers = selectedOrganizationId
     ? users.filter((user) => String(user.organization_id) === String(selectedOrganizationId))
     : [];
-  const paginatedClients = clients.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const visibleClients = useMemo(
+    () => filterAndSortClients(clients, clientSearch, clientSort),
+    [clients, clientSearch, clientSort]
+  );
+  const paginatedClients = visibleClients.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
   const paginatedUsers = selectedOrganizationUsers.slice(
     usersPage * userRowsPerPage,
     usersPage * userRowsPerPage + userRowsPerPage
@@ -225,16 +247,18 @@ export default function PEClients() {
     }
   }
 
-  async function loadUsers() {
+  async function loadUsers({ force = false } = {}) {
     setIsUsersLoading(true);
     setUsersError("");
 
     try {
-      const response = await axios.get(USER_API_URL, {
+      const response = await getCached(USER_API_URL, {
+        force,
         headers: getAuthHeaders(),
         timeout: 60000,
       });
       setUsers(response.data?.data || []);
+      setHasLoadedUsers(true);
     } catch (fetchError) {
       if (!handleUnauthorized(fetchError)) {
         setUsersError(getApiErrorMessage(fetchError, "Unable to load users."));
@@ -246,16 +270,21 @@ export default function PEClients() {
 
   useEffect(() => {
     loadClients();
-    loadUsers();
   }, []);
 
   useEffect(() => {
-    const lastPage = Math.max(0, Math.ceil(clients.length / rowsPerPage) - 1);
+    if (selectedOrganizationId && !hasLoadedUsers) {
+      loadUsers();
+    }
+  }, [selectedOrganizationId, hasLoadedUsers]);
+
+  useEffect(() => {
+    const lastPage = Math.max(0, Math.ceil(visibleClients.length / rowsPerPage) - 1);
 
     if (page > lastPage) {
       setPage(lastPage);
     }
-  }, [clients.length, page, rowsPerPage]);
+  }, [visibleClients.length, page, rowsPerPage]);
 
   useEffect(() => {
     const lastPage = Math.max(0, Math.ceil(selectedOrganizationUsers.length / userRowsPerPage) - 1);
@@ -284,7 +313,6 @@ export default function PEClients() {
   }
 
   function openAddDialog() {
-    setActionsAnchor(null);
     setOrganizationFormValues(initialOrganizationFormValues);
     setFormError("");
     setIsAddDialogOpen(true);
@@ -317,7 +345,6 @@ export default function PEClients() {
   }
 
   function openUserDialog() {
-    setActionsAnchor(null);
     setUserFormValues({
       ...initialUserFormValues,
       organization_id: selectedOrganization?.id || (clients.length === 1 ? clients[0].id : ""),
@@ -460,6 +487,7 @@ export default function PEClients() {
       const updatedClient = response.data;
 
       invalidateApiCache(API_URL);
+      invalidateApiCache(USER_API_URL);
       setClients((currentClients) =>
         currentClients
           .map((client) => (client.id === updatedClient.id ? updatedClient : client))
@@ -503,6 +531,7 @@ export default function PEClients() {
       });
 
       invalidateApiCache(API_URL);
+      invalidateApiCache(USER_API_URL);
       setClients((currentClients) => currentClients.filter((client) => client.id !== clientToDelete.id));
       setUsers((currentUsers) => currentUsers.filter((user) => user.organization_id !== clientToDelete.id));
       if (String(selectedOrganizationId) === String(clientToDelete.id)) {
@@ -557,6 +586,7 @@ export default function PEClients() {
       );
       const createdUser = response.data;
       invalidateApiCache(API_URL);
+      invalidateApiCache(USER_API_URL);
       setUsers((currentUsers) =>
         [...currentUsers, createdUser].sort((firstUser, secondUser) =>
           firstUser.name.localeCompare(secondUser.name)
@@ -604,6 +634,9 @@ export default function PEClients() {
       );
       const updatedUser = response.data;
 
+      invalidateApiCache(API_URL);
+      invalidateApiCache(USER_API_URL);
+
       setUsers((currentUsers) => currentUsers.map((user) => (user.id === updatedUser.id ? updatedUser : user)));
 
       if (previousUser && String(previousUser.organization_id) !== String(updatedUser.organization_id)) {
@@ -649,6 +682,8 @@ export default function PEClients() {
       );
       const updatedUser = response.data;
 
+      invalidateApiCache(USER_API_URL);
+
       setUsers((currentUsers) => currentUsers.map((user) => (user.id === updatedUser.id ? updatedUser : user)));
       setIsResetPasswordDialogOpen(false);
     } catch (saveError) {
@@ -676,6 +711,9 @@ export default function PEClients() {
         timeout: 60000,
       });
 
+      invalidateApiCache(API_URL);
+      invalidateApiCache(USER_API_URL);
+
       setUsers((currentUsers) => currentUsers.filter((user) => user.id !== userToDelete.id));
       setClients((currentClients) =>
         currentClients.map((client) =>
@@ -693,17 +731,7 @@ export default function PEClients() {
     }
   }
 
-  function handleAction(optionKey) {
-    if (optionKey === "organization") {
-      openAddDialog();
-    } else {
-      exportClients();
-    }
-  }
-
   function exportClients() {
-    setActionsAnchor(null);
-
     if (!clients.length) {
       return;
     }
@@ -731,6 +759,50 @@ export default function PEClients() {
   function renderOrganizationTable() {
     return (
       <>
+        <Box
+          sx={{
+            alignItems: { xs: "stretch", md: "center" },
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            display: "flex",
+            flexDirection: { xs: "column", md: "row" },
+            gap: 1.5,
+            justifyContent: "space-between",
+            px: { xs: 2, md: 3 },
+            py: 2,
+          }}
+        >
+          <TextField
+            label="Search organizations"
+            onChange={(event) => {
+              setClientSearch(event.target.value);
+              setPage(0);
+            }}
+            placeholder="Name, city, or state"
+            size="small"
+            sx={{ width: { xs: "100%", md: 320 } }}
+            value={clientSearch}
+          />
+          <FormControl size="small" sx={{ minWidth: { xs: "100%", md: 215 } }}>
+            <InputLabel id="pe-clients-sort-label">Sort organizations</InputLabel>
+            <Select
+              label="Sort organizations"
+              labelId="pe-clients-sort-label"
+              onChange={(event) => {
+                setClientSort(event.target.value);
+                setPage(0);
+              }}
+              value={clientSort}
+            >
+              <MenuItem value="name_asc">Name (A–Z)</MenuItem>
+              <MenuItem value="users_desc">Most users</MenuItem>
+              <MenuItem value="expiration_asc">Contract expiration (soonest)</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+        <Typography color="text.secondary" sx={{ display: { xs: "block", lg: "none" }, px: 2, pt: 1.5 }} variant="caption">
+          Scroll horizontally to see all columns and actions.
+        </Typography>
         <TableContainer sx={{ overflowX: "auto" }}>
           <Table size="small" sx={{ minWidth: tableMinWidth, tableLayout: "fixed" }}>
             <TableHead>
@@ -741,6 +813,7 @@ export default function PEClients() {
                     sx={{
                       ...subtleTableHeadCellSx,
                       width: column.width,
+                      px: 2,
                     }}
                   >
                     {column.label}
@@ -757,38 +830,32 @@ export default function PEClients() {
                 </TableRow>
               ) : paginatedClients.length ? (
                 paginatedClients.map((client) => (
-                  <TableRow
-                    hover
-                    key={client.id || client.dynamics_account_id}
-                    onClick={() => openOrganizationDetail(client)}
-                    sx={{ cursor: "pointer" }}
-                  >
-                    <TableCell sx={{ fontWeight: 700 }}>{client.organization_name || "Missing"}</TableCell>
-                    <TableCell>{client.city || "Missing"}</TableCell>
-                    <TableCell>{client.state || "Missing"}</TableCell>
+                  <TableRow hover key={client.id || client.dynamics_account_id} sx={{ "& td": { px: 2, py: 1.5, verticalAlign: "middle" } }}>
+                    <TableCell sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>{client.organization_name || "Missing"}</TableCell>
+                    <TableCell sx={{ overflowWrap: "anywhere" }}>{client.city || "Missing"}</TableCell>
+                    <TableCell sx={{ overflowWrap: "anywhere" }}>{client.state || "Missing"}</TableCell>
                     <TableCell>{client.number_of_users ?? "Not set"}</TableCell>
                     <TableCell>{client.usage_type ? <Chip size="small" label={usageLabels[client.usage_type] || "Not set"} color="primary" variant="outlined" /> : "Not set"}</TableCell>
                     <TableCell>{client.user_count ?? 0}</TableCell>
                     <TableCell>{formatDate(client.contract_expiration)}</TableCell>
                     <TableCell>
-                      <Stack direction="row" spacing={1}>
+                      <Stack alignItems="center" direction="row" spacing={0.5} sx={{ whiteSpace: "nowrap" }}>
+                        <Button aria-label={`View ${client.organization_name || "organization"}`} onClick={() => openOrganizationDetail(client)} size="small" variant="outlined">
+                          View
+                        </Button>
                         <Button
+                          aria-label={`Edit ${client.organization_name || "organization"}`}
                           disabled={isSaving}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            openEditOrganizationDialog(client);
-                          }}
+                          onClick={() => openEditOrganizationDialog(client)}
                           size="small"
                         >
                           Edit
                         </Button>
                         <Button
+                          aria-label={`Delete ${client.organization_name || "organization"}`}
                           color="error"
                           disabled={isSaving}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            deleteOrganization(client);
-                          }}
+                          onClick={() => deleteOrganization(client)}
                           size="small"
                         >
                           Delete
@@ -800,13 +867,17 @@ export default function PEClients() {
               ) : (
                 <TableRow>
                   <TableCell colSpan={columns.length} sx={{ p: 0 }}>
-                    <EmptyState
-                      actionLabel="Add organization"
-                      description="Create a client organization to begin tracking access."
-                      icon="database"
-                      onAction={openAddDialog}
-                      title="No organizations available"
-                    />
+                    {clients.length ? (
+                      <EmptyState description="Try a different name, city, or state." icon="database" title="No matching organizations" />
+                    ) : (
+                      <EmptyState
+                        actionLabel="Add organization"
+                        description="Create a client organization to begin tracking access."
+                        icon="database"
+                        onAction={openAddDialog}
+                        title="No organizations available"
+                      />
+                    )}
                   </TableCell>
                 </TableRow>
               )}
@@ -815,12 +886,13 @@ export default function PEClients() {
         </TableContainer>
         <TablePagination
           component="div"
-          count={clients.length}
+          count={visibleClients.length}
           onPageChange={handleChangePage}
           onRowsPerPageChange={handleChangeRowsPerPage}
           page={page}
           rowsPerPage={rowsPerPage}
           rowsPerPageOptions={[10, 25, 50, 100]}
+          sx={{ "& .MuiTablePagination-toolbar": { flexWrap: "wrap", justifyContent: "flex-end", py: 1, rowGap: 1 } }}
         />
       </>
     );
@@ -844,7 +916,7 @@ export default function PEClients() {
               <Button onClick={() => setSelectedOrganizationId("")} size="small" sx={{ mb: 1 }}>
                 Back to Organizations
               </Button>
-              <Typography color="primary.main" sx={{ fontWeight: 800 }} variant="h6">
+              <Typography color="primary.main" sx={{ fontWeight: 800, overflowWrap: "anywhere" }} variant="h6">
                 {selectedOrganization.organization_name || "Missing"}
               </Typography>
               <Typography color="text.secondary" variant="body2" sx={{ mt: 0.5 }}>
@@ -866,12 +938,18 @@ export default function PEClients() {
               <Button disabled={!clients.length || isSaving} onClick={openUserDialog} variant="contained">
                 Create User
               </Button>
+              <Button disabled={isUsersLoading || isSaving} onClick={() => loadUsers({ force: true })} variant="outlined">
+                Refresh users
+              </Button>
             </Stack>
           </Stack>
         </Box>
 
         {usersError ? <Alert severity="error">{usersError}</Alert> : null}
 
+        <Typography color="text.secondary" sx={{ display: { xs: "block", lg: "none" }, px: 2, pb: 1 }} variant="caption">
+          Scroll horizontally to see all user details and actions.
+        </Typography>
         <TableContainer sx={{ overflowX: "auto" }}>
           <Table size="small" sx={{ minWidth: userTableMinWidth, tableLayout: "fixed" }}>
             <TableHead>
@@ -898,10 +976,10 @@ export default function PEClients() {
                 </TableRow>
               ) : paginatedUsers.length ? (
                 paginatedUsers.map((user) => (
-                  <TableRow hover key={user.id}>
-                    <TableCell sx={{ fontWeight: 700 }}>{user.name}</TableCell>
-                    <TableCell>{user.username}</TableCell>
-                    <TableCell>{user.role}</TableCell>
+                  <TableRow hover key={user.id} sx={{ "& td": { px: 2, py: 1.5, verticalAlign: "middle" } }}>
+                    <TableCell sx={{ fontWeight: 700, overflowWrap: "anywhere" }}>{user.name}</TableCell>
+                    <TableCell sx={{ overflowWrap: "anywhere" }}>{user.username}</TableCell>
+                    <TableCell sx={{ overflowWrap: "anywhere" }}>{user.role}</TableCell>
                     <TableCell>
                       <Button disabled={isSaving} onClick={() => openResetPasswordDialog(user)} size="small">
                         Reset Password
@@ -943,6 +1021,7 @@ export default function PEClients() {
           page={usersPage}
           rowsPerPage={userRowsPerPage}
           rowsPerPageOptions={[10, 25, 50, 100]}
+          sx={{ "& .MuiTablePagination-toolbar": { flexWrap: "wrap", justifyContent: "flex-end", py: 1, rowGap: 1 } }}
         />
       </>
     );
@@ -964,8 +1043,8 @@ export default function PEClients() {
         />
         <SummaryMetricCard
           description="Portal users linked to client organizations"
-          label="Portal Accounts"
-          value={users.length}
+          label="Total Users"
+          value={clients.reduce((total, client) => total + Number(client.user_count || 0), 0)}
         />
       </Box>
 
@@ -997,39 +1076,23 @@ export default function PEClients() {
               Organizations and linked portal users.
             </Typography>
           </Box>
-          <Stack alignItems="center" direction="row" spacing={1}>
-            <Button
-              aria-controls={actionsAnchor ? "pe-client-actions" : undefined}
-              aria-expanded={actionsAnchor ? "true" : undefined}
-              aria-haspopup="menu"
-              onClick={(event) => setActionsAnchor(event.currentTarget)}
-              variant="outlined"
-            >
-              Actions
-            </Button>
+          <Stack alignItems={{ xs: "stretch", sm: "center" }} direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ width: { xs: "100%", sm: "auto" } }}>
             <Chip label={`${clients.length} total`} sx={{ fontWeight: 800 }} />
+            <Button disabled={!clients.length} onClick={exportClients} variant="outlined">
+              Export all CSV
+            </Button>
+            <Button disabled={isLoading} onClick={() => loadClients({ force: true })} variant="outlined">
+              Refresh organizations
+            </Button>
+            <Button onClick={openAddDialog} variant="contained">
+              Add Organization
+            </Button>
           </Stack>
         </Box>
 
         {error ? <Alert severity="error">{error}</Alert> : null}
         {selectedOrganization ? renderOrganizationDetail() : renderOrganizationTable()}
 
-        <Menu
-          anchorEl={actionsAnchor}
-          id="pe-client-actions"
-          onClose={() => setActionsAnchor(null)}
-          open={Boolean(actionsAnchor)}
-        >
-          {actionFieldsOptions.map((option) => (
-            <MenuItem
-              disabled={option.key === "export" && !clients.length}
-              key={option.key}
-              onClick={() => handleAction(option.key)}
-            >
-              {option.label}
-            </MenuItem>
-          ))}
-        </Menu>
       </Paper>
 
       <Dialog fullWidth maxWidth="sm" onClose={closeAddDialog} open={isAddDialogOpen}>
