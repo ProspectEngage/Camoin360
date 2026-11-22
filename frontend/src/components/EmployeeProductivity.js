@@ -27,26 +27,10 @@ import {
 
 import { API_BASE_URL, getApiErrorMessage, getAuthHeaders, handleUnauthorized } from "../auth";
 import { FullWidthFilterRow } from "./UiPrimitives";
+import { formatHours, formatPercent } from "./productivityFormatting";
 
 const API_URL = `${API_BASE_URL}/productivity/employee-hours`;
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
-const CURRENT_YEAR = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 2022 + 1 }, (_, index) => CURRENT_YEAR - index);
-const MONTH_OPTIONS = [
-  { label: "All Months", value: "" },
-  { label: "January", value: 1 },
-  { label: "February", value: 2 },
-  { label: "March", value: 3 },
-  { label: "April", value: 4 },
-  { label: "May", value: 5 },
-  { label: "June", value: 6 },
-  { label: "July", value: 7 },
-  { label: "August", value: 8 },
-  { label: "September", value: 9 },
-  { label: "October", value: 10 },
-  { label: "November", value: 11 },
-  { label: "December", value: 12 },
-];
 const ALL_EMPLOYEES_VALUE = "all";
 const BILLING_OPTIONS = [
   { label: "All Billing", value: "all" },
@@ -66,18 +50,6 @@ const CHART_COLORS = {
   billable: "#0d9488",
   nonBillable: "#2563eb",
 };
-
-const formatPercent = (value) =>
-  `${Number(value || 0).toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 1,
-  })}%`;
-
-const formatHours = (value) =>
-  Number(value || 0).toLocaleString(undefined, {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 0,
-  });
 
 const getUtilizationRate = (employee) => {
   if (employee.utilization_rate !== undefined && employee.utilization_rate !== null) {
@@ -121,8 +93,6 @@ export default function EmployeeProductivity({ filters } = {}) {
     weeks: 12,
     updated_at: "",
   });
-  const [selectedYear, setSelectedYear] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState(ALL_EMPLOYEES_VALUE);
   const [selectedBilling, setSelectedBilling] = useState("all");
   const [isLoading, setIsLoading] = useState(true);
@@ -133,7 +103,7 @@ export default function EmployeeProductivity({ filters } = {}) {
   const fetchMetrics = useCallback(async ({ refresh = false, background = false } = {}) => {
     if (!isMountedRef.current) return;
 
-    const requestKey = `${JSON.stringify(reportingParams(filters))}:${selectedYear}:${selectedMonth || "all"}:${refresh ? "refresh" : "read"}`;
+    const requestKey = `${JSON.stringify(reportingParams(filters))}:${refresh ? "refresh" : "read"}`;
     if (activeFetchKeyRef.current === requestKey) {
       return;
     }
@@ -153,12 +123,6 @@ export default function EmployeeProductivity({ filters } = {}) {
 
     try {
       const params = reportingParams(filters);
-      if (selectedYear) {
-        params.year = selectedYear;
-      }
-      if (selectedMonth) {
-        params.month = selectedMonth;
-      }
       if (refresh) {
         params.refresh = true;
       }
@@ -201,7 +165,7 @@ export default function EmployeeProductivity({ filters } = {}) {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [selectedMonth, selectedYear, filters]);
+  }, [filters]);
 
   useEffect(() => {
     isMountedRef.current = true;

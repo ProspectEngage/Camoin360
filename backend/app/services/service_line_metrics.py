@@ -21,7 +21,7 @@ SERVICE_LINE_METRICS_SYNC_STALE_SECONDS = int(
 )
 SERVICE_LINE_METRICS_REQUEST_TIMEOUT_SECONDS = 120
 CACHE_KEY = "default"
-PAYLOAD_VERSION = 3
+PAYLOAD_VERSION = 4
 MARKETING_SOURCE_START_YEAR = 2024
 
 SERVICE_LINE_DEFINITIONS = [
@@ -74,19 +74,28 @@ def _match_service_line(path: str) -> str | None:
 
 
 def _run_ga4_report():
+    if not GA4_PROPERTY_ID:
+        raise RuntimeError("GA4_PROPERTY_ID is not configured")
     client = BetaAnalyticsDataClient()
-    request = RunReportRequest(
-        property=f"properties/{GA4_PROPERTY_ID}",
-        dimensions=[
-            Dimension(name="yearMonth"),
-            Dimension(name="landingPage"),
-            Dimension(name="sessionSource"),
-        ],
-        metrics=[Metric(name="sessions")],
-        date_ranges=[DateRange(start_date=SERVICE_LINE_METRICS_START_DATE, end_date="today")],
-        limit=100000,
-    )
-    return client.run_report(request)
+    rows = []
+    offset = 0
+    while True:
+        response = client.run_report(RunReportRequest(
+            property=f"properties/{GA4_PROPERTY_ID}",
+            dimensions=[
+                Dimension(name="yearMonth"),
+                Dimension(name="landingPage"),
+                Dimension(name="sessionSource"),
+            ],
+            metrics=[Metric(name="sessions")],
+            date_ranges=[DateRange(start_date=SERVICE_LINE_METRICS_START_DATE, end_date="today")],
+            limit=100000,
+            offset=offset,
+        ))
+        rows.extend(response.rows)
+        offset += len(response.rows)
+        if not response.rows or offset >= response.row_count:
+            return rows
 
 
 def _normalize_traffic_source(source: str) -> str:
@@ -99,10 +108,10 @@ def _normalize_traffic_source(source: str) -> str:
 
 
 async def _fetch_ga4_monthly_sessions() -> tuple[dict, dict]:
-    response = await asyncio.to_thread(_run_ga4_report)
+    rows = await asyncio.to_thread(_run_ga4_report)
     aggregated: dict = defaultdict(int)
     source_aggregated: dict = defaultdict(int)
-    for row in response.rows:
+    for row in rows:
         year_month = row.dimension_values[0].value
         path = row.dimension_values[1].value
         source = _normalize_traffic_source(row.dimension_values[2].value)
@@ -161,10 +170,22 @@ def _month_period_label(year_month: str) -> str:
 
 
 async def _load_service_line_marketing_metrics() -> dict:
-    ga_result, leadfeeder_visits = await asyncio.gather(
-        _fetch_ga4_monthly_sessions(), _fetch_leadfeeder_monthly_visits()
+    ga_result, leadfeeder_result = await asyncio.gather(
+        _fetch_ga4_monthly_sessions(), _fetch_leadfeeder_monthly_visits(), return_exceptions=True
     )
-    ga_visits, ga_source_visits = ga_result
+    if isinstance(ga_result, Exception) and isinstance(leadfeeder_result, Exception):
+        raise RuntimeError(f"GA4: {ga_result}; Dynamics Leadfeeder: {leadfeeder_result}")
+    warnings = []
+    if isinstance(ga_result, Exception):
+        warnings.append(f"GA4 sessions are unavailable: {ga_result}")
+        ga_visits, ga_source_visits = {}, {}
+    else:
+        ga_visits, ga_source_visits = ga_result
+    if isinstance(leadfeeder_result, Exception):
+        warnings.append(f"Dynamics Leadfeeder visits are unavailable: {leadfeeder_result}")
+        leadfeeder_visits = {}
+    else:
+        leadfeeder_visits = leadfeeder_result
 
     all_months = sorted({year_month for (_, year_month) in ga_visits} | {year_month for (_, year_month) in leadfeeder_visits})
 
@@ -187,8 +208,8 @@ async def _load_service_line_marketing_metrics() -> dict:
                 "year": int(year_month[:4]),
                 "month": int(year_month[4:6]),
                 "period": _month_period_label(year_month),
-                "ga_visits": ga_visits.get((label, year_month), 0),
-                "leadfeeder_visits": leadfeeder_visits.get((label, year_month), 0),
+                "ga_visits": ga_visits.get((label, year_month), 0) if not isinstance(ga_result, Exception) else None,
+                "leadfeeder_visits": leadfeeder_visits.get((label, year_month), 0) if not isinstance(leadfeeder_result, Exception) else None,
             }
             for year_month in months_in_range
         ]
@@ -224,6 +245,7 @@ async def _load_service_line_marketing_metrics() -> dict:
             {"source": source, "visits": visits}
             for source, visits in sorted(source_totals.items(), key=lambda item: (-item[1], item[0].lower()))
         ],
+        "warnings": warnings,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -237,6 +259,7 @@ def _empty_service_line_marketing_payload() -> dict:
         ],
         "source_months": [],
         "traffic_by_source": [],
+        "warnings": [],
         "updated_at": "",
     }
 
@@ -271,6 +294,7 @@ def _ensure_current_service_lines(payload: dict) -> dict:
         "service_lines": service_lines,
         "source_months": payload.get("source_months", []),
         "traffic_by_source": payload.get("traffic_by_source", []),
+        "warnings": payload.get("warnings", []),
     }
 
 

@@ -1,7 +1,8 @@
+import { ChartEmpty, ChartError, ChartLoading, formatChartCurrency } from "./ChartFeedback";
 import { filterReportingRows } from "../reportingPeriod";
 import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
-import { Alert, Box, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from "@mui/material";
+import { Box, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import {
   Bar,
   BarChart,
@@ -48,20 +49,20 @@ function MonthTick({ x, y, payload }) {
     <g transform={`translate(${x},${y})`}>
       <text fill="#475569" fontSize="10" textAnchor="middle">
         <tspan x="0" dy="12">{label}</tspan>
-        <tspan fontWeight="700" x="0" dy="15">{month === 7 ? year : ""}</tspan>
+        <tspan fontWeight="700" x="0" dy="15">{year}</tspan>
       </text>
     </g>
   );
 }
 
-function ChartCard({ children, description, title }) {
+function ChartCard({ children, description, title, empty }) {
   return (
     <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, minWidth: 0, p: { xs: 2, md: 2.5 } }}>
       <Stack spacing={0.5} sx={{ mb: 2 }}>
         <Typography color="text.primary" fontWeight={800}>{title}</Typography>
         <Typography color="text.secondary" variant="body2">{description}</Typography>
       </Stack>
-      {children}
+      {empty ? <ChartEmpty /> : children}
     </Paper>
   );
 }
@@ -69,11 +70,14 @@ function ChartCard({ children, description, title }) {
 export default function SalesOutlook({ filters } = {}) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [requestVersion, setRequestVersion] = useState(0);
   const [projectSearch, setProjectSearch] = useState("");
   const scrollRef = useRef(null);
 
   useEffect(() => {
     let active = true;
+    setError("");
+    setData(null);
     axios.get(API_URL, { headers: getAuthHeaders() })
       .then((response) => {
         if (active) setData(response.data);
@@ -83,7 +87,7 @@ export default function SalesOutlook({ filters } = {}) {
         setError(getApiErrorMessage(fetchError, "Unable to load sales outlook."));
       });
     return () => { active = false; };
-  }, []);
+  }, [requestVersion]);
 
   const monthlyData = useMemo(() => filterReportingRows(data?.monthly_projects, filters), [data, filters]);
   const filteredProjectDetails = useMemo(() => {
@@ -95,14 +99,15 @@ export default function SalesOutlook({ filters } = {}) {
     );
   }, [data, projectSearch, filters]);
 
-  if (error) return <Alert severity="error">{error}</Alert>;
-  if (!data) return <Box sx={{ display: "grid", minHeight: 320, placeItems: "center" }}><CircularProgress /></Box>;
+  if (error) return <ChartError message={error} onRetry={() => setRequestVersion((version) => version + 1)} />;
+  if (!data) return <ChartLoading label="sales outlook" />;
 
   return (
     <Box sx={{ display: "grid", gap: 3, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" } }}>
       <ChartCard
-        title="$ of all contracts signed"
-        description="Annual Fee for Camoin totals by contract date, starting in 2020."
+        title="Annual contracted Camoin fees (USD)"
+        empty={!filterReportingRows(data.annual_contracts, filters).length}
+        description="Fee for Camoin grouped by Contract Date since 2020. Annual totals remain whole-year values when selecting a month or quarter."
       >
         <Box sx={{ height: 340, minWidth: 0 }}>
           <ResponsiveContainer height="100%" width="100%">
@@ -110,7 +115,7 @@ export default function SalesOutlook({ filters } = {}) {
               <CartesianGrid stroke="#eef2f7" strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="year" tick={{ fontSize: 12 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={formatCurrency} width={78} />
-              <Tooltip {...tooltipStyle} formatter={(value) => [formatCurrency(value), "Fee for Camoin"]} />
+              <Tooltip {...tooltipStyle} labelFormatter={(year) => `Contract year: ${year}`} formatter={(value) => [formatChartCurrency(value), "Fee for Camoin (USD)"]} />
               <Line activeDot={{ r: 6 }} dataKey="amount" dot={{ r: 4 }} name="Fee for Camoin" stroke="#0f766e" strokeWidth={3} type="monotone" />
             </LineChart>
           </ResponsiveContainer>
@@ -118,8 +123,9 @@ export default function SalesOutlook({ filters } = {}) {
       </ChartCard>
 
       <ChartCard
-        title="Projects Completed by Month"
-        description="Monthly project volume from 2021 onward. Scroll horizontally to see later months."
+        title="Projects created per month (count)"
+        empty={!monthlyData.length}
+        description="Project records grouped by Dynamics Created On date since 2021. Scroll horizontally to see all months."
       >
         <Box sx={{ display: "flex", height: 350, minWidth: 0, width: "100%" }}>
           <Box sx={{ flex: "0 0 52px", height: 330 }}>
@@ -171,7 +177,7 @@ export default function SalesOutlook({ filters } = {}) {
                       sx={{ width: "100%" }}
                       value={projectSearch}
                     />
-                    <Typography component="span" fontWeight={800} textAlign="right">Fee for Camoin</Typography>
+                    <Typography component="span" fontWeight={800} textAlign="right">Fee for Camoin (USD)</Typography>
                   </Box>
                 </TableCell>
               </TableRow>
@@ -186,7 +192,7 @@ export default function SalesOutlook({ filters } = {}) {
               {!filteredProjectDetails.length ? (
                 <TableRow>
                   <TableCell align="center" colSpan={2} sx={{ color: "text.secondary", py: 4 }}>
-                    {projectSearch.trim() ? "No projects match your search." : "No project details are available."}
+                    {projectSearch.trim() ? "No projects match your search. Clear or change the project search." : "No projects match this reporting period. Widen or clear the date filters."}
                   </TableCell>
                 </TableRow>
               ) : null}

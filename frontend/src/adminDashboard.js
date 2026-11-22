@@ -1,24 +1,6 @@
+import DashboardShell from "./components/DashboardShell";
 import { useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  Box,
-  Button,
-  Checkbox,
-  Container,
-  Divider,
-  FormControlLabel,
-  Paper,
-  Stack,
-  SvgIcon,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  TextField,
-  Typography,
-  useTheme,
-} from "@mui/material";
+import { Alert, Box, Button, Checkbox, FormControlLabel, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 
 import {
   MODULE_OPTIONS,
@@ -37,18 +19,7 @@ const emptyForm = {
   modules: ["main"],
 };
 
-const iconPaths = {
-  signout: "M10 17v-2h4V9h-4V7h6v10h-6Zm-1-1-5-4 5-4v3h6v2H9v3Z",
-  users: "M7 11a4 4 0 1 1 8 0 4 4 0 0 1-8 0Zm-4 9c.7-3.1 3.9-5 8-5s7.3 1.9 8 5H3Zm14.5-7a3 3 0 1 0 0-6 4.8 4.8 0 0 1 0 6Zm.6 2.1c1.7.6 2.9 1.8 3.4 3.9h-3.2a7 7 0 0 0-1.9-3.5c.6-.2 1.1-.3 1.7-.4Z",
-};
 
-function AdminIcon({ name }) {
-  return (
-    <SvgIcon fontSize="small" viewBox="0 0 24 24">
-      <path d={iconPaths[name]} />
-    </SvgIcon>
-  );
-}
 
 function normalizeModules(modules) {
   return MODULE_OPTIONS.filter((option) => modules.includes(option.value)).map((option) => option.value);
@@ -104,7 +75,6 @@ export default function AdminDashboard({ onLogout }) {
   const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
-  const theme = useTheme();
   const createPassword = formValues.password || "";
   const createConfirmPassword = formValues.confirmPassword || "";
   const createPasswordMismatch =
@@ -226,99 +196,9 @@ export default function AdminDashboard({ onLogout }) {
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        background: `radial-gradient(circle at top left, ${theme.palette.secondary.main}12, transparent 30%), ${theme.palette.background.default}`,
-      }}
-    >
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", md: "280px minmax(0, 1fr)" },
-          minHeight: "100vh",
-        }}
-      >
-        <Box
-          component="aside"
-          sx={{
-            backgroundColor: "primary.main",
-            color: "common.white",
-            height: { md: "100vh" },
-            p: { xs: 2, md: 3 },
-            position: { xs: "relative", md: "sticky" },
-            top: { md: 0 },
-          }}
-        >
-          <Stack spacing={3} sx={{ height: "100%" }}>
-            <Box>
-              <Typography component="h1" sx={{ fontSize: "1.55rem", fontWeight: 800, lineHeight: 1.1 }}>
-                Camoin 360
-              </Typography>
-              <Typography sx={{ color: "rgba(255,255,255,0.72)", mt: 0.75 }} variant="body2">
-                User Admin
-              </Typography>
-            </Box>
+    <DashboardShell module="admin" label="User Admin" views={{ users: { label: "Users", title: "User Admin", description: "Create Camoin 360 users and assign the modules they can open." } }} activeView={"users"} onNavigate={() => {}} onLogout={onLogout}>
+      <Stack spacing={3}>
 
-            <Divider sx={{ borderColor: "rgba(255,255,255,0.18)" }} />
-
-            <Button
-              fullWidth
-              startIcon={<AdminIcon name="users" />}
-              sx={{
-                backgroundColor: "common.white",
-                color: "primary.main",
-                fontWeight: 800,
-                justifyContent: "flex-start",
-              }}
-            >
-              Users
-            </Button>
-
-            <Box sx={{ flex: 1 }} />
-
-            <Button
-              fullWidth
-              onClick={onLogout}
-              startIcon={<AdminIcon name="signout" />}
-              sx={{
-                borderColor: "rgba(255,255,255,0.42)",
-                color: "common.white",
-                fontWeight: 800,
-                justifyContent: "flex-start",
-                "&:hover": {
-                  backgroundColor: "rgba(255,255,255,0.10)",
-                  borderColor: "common.white",
-                },
-              }}
-              title="Sign out"
-              variant="outlined"
-            >
-              Sign out
-            </Button>
-          </Stack>
-        </Box>
-
-        <Box component="main" sx={{ py: { xs: 3, md: 5 } }}>
-          <Container maxWidth="xl" sx={{ px: { xs: 2, md: 4 } }}>
-            <Stack spacing={3}>
-              <Box>
-                <Typography
-                  component="h2"
-                  sx={{
-                    color: "primary.main",
-                    fontSize: { xs: "2rem", md: "2.35rem" },
-                    fontWeight: 750,
-                    lineHeight: 1.1,
-                    mb: 1,
-                  }}
-                >
-                  User Admin
-                </Typography>
-                <Typography color="text.secondary">
-                  Create Camoin 360 users and assign the modules they can open.
-                </Typography>
-              </Box>
 
               {error ? <Alert severity="error">{error}</Alert> : null}
               {success ? <Alert severity="success">{success}</Alert> : null}
@@ -490,9 +370,6 @@ export default function AdminDashboard({ onLogout }) {
                 </Box>
               </Paper>
             </Stack>
-          </Container>
-        </Box>
-      </Box>
-    </Box>
+    </DashboardShell>
   );
 }

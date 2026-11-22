@@ -44,9 +44,17 @@ initialize_database()
 
 MODULE_PATH_RULES = [
     ("prospecting", ("/leadfeeder-visits", "/accounts/leadfeeder-visits", "/pe-clients", "/pe-qualified-leads", "/marketing-lists", "/organizations", "/users")),
-    ("management", ("/management", "/economic-indicators", "/company-financials", "/marketing", "/productivity", "/employee-productivity", "/software-subscriptions", "/ai")),
+    ("management", ("/surveys", "/management", "/economic-indicators", "/company-financials", "/marketing", "/productivity", "/employee-productivity", "/software-subscriptions", "/ai")),
     ("main", ("/metrics", "/accounts")),
 ]
+
+# Share only the read endpoints needed by employee dashboards.
+SHARED_READ_MODULES = {
+    "/productivity/projects": ("consulting",),
+    "/productivity/employee-hours": ("consulting",),
+    "/surveys/completed": ("consulting",),
+    "/pe-qualified-leads": ("management",),
+}
 
 @app.middleware("http")
 async def enforce_module_access(request, call_next):
@@ -85,7 +93,8 @@ async def enforce_module_access(request, call_next):
         detail = getattr(exc, "detail", "Invalid token")
         return JSONResponse(status_code=status_code, content={"detail": detail})
 
-    if not user_has_module(user, required_module):
+    shared_modules = SHARED_READ_MODULES.get(path.rstrip("/"), ()) if request.method == "GET" else ()
+    if not any(user_has_module(user, module) for module in (required_module, *shared_modules)):
         return JSONResponse(status_code=403, content={"detail": "Module access required"})
 
     request.state.authenticated_user = user

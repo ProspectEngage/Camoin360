@@ -22,7 +22,7 @@ class QuickBooksFinancialsTest(unittest.IsolatedAsyncioTestCase):
                     await quickbooks._get_access_token(client, config)
                 mark.assert_not_called()
 
-    async def test_missing_configuration_returns_sample_financials(self):
+    async def test_missing_configuration_does_not_return_sample_financials(self):
         env_without_quickbooks = {
             key: value
             for key, value in os.environ.items()
@@ -33,28 +33,10 @@ class QuickBooksFinancialsTest(unittest.IsolatedAsyncioTestCase):
             patch.dict(os.environ, env_without_quickbooks, clear=True),
             patch.object(quickbooks, "get_database_connection", side_effect=RuntimeError("DATABASE_URL is not set")),
         ):
-            result = await quickbooks.get_company_financials(force_refresh=True)
+            with self.assertRaises(quickbooks.QuickBooksConfigurationError):
+                await quickbooks.get_company_financials(force_refresh=True)
 
-        self.assertEqual(result["source"], "Sample QuickBooks financials")
-        self.assertGreaterEqual(len(result["rows"]), 12)
-        self.assertEqual(
-            {
-                "cashOnHand",
-                "currentRatio",
-                "debtToAssets",
-                "debtToEquity",
-                "month",
-                "monthNumber",
-                "monthKey",
-                "netIncome",
-                "ownerEquity",
-                "quarter",
-                "returnOnAssets",
-                "sales",
-                "year",
-            },
-            set(result["rows"][0]),
-        )
+        self.assertEqual(quickbooks._cache["financials_by_organization"], {})
 
     async def test_connection_status_does_not_expose_tokens(self):
         expires_at = datetime.now(timezone.utc) + timedelta(days=30)

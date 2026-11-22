@@ -154,22 +154,6 @@ def initialize_database(force: bool = False):
         wrapped.execute(
             "ALTER TABLE software_subscriptions ADD COLUMN IF NOT EXISTS renewal_date TEXT NOT NULL DEFAULT ''"
         )
-        wrapped.executemany(
-            """
-            UPDATE software_subscriptions
-            SET category = ?,
-                department = CASE WHEN department = '' THEN ? ELSE department END,
-                billing_frequency = CASE WHEN billing_frequency = '' THEN ? ELSE billing_frequency END,
-                renewal_date = CASE WHEN renewal_date = '' THEN ? ELSE renewal_date END
-            WHERE name = ?
-            """,
-            [
-                ("GIS / Mapping", "Operations", "Annual", "2026-07-01", "ArcGIS Online"),
-                ("Labor Market Data", "Research", "Annual", "2026-09-01", "Lightcast Analyst"),
-                ("Sales Intelligence", "Marketing", "Annual", "2027-03-01", "ZoomInfo"),
-                ("Design Tools", "Marketing", "Annual", "2026-12-01", "Canva Teams"),
-            ],
-        )
         wrapped.execute(
             "CREATE INDEX IF NOT EXISTS idx_software_subscriptions_status ON software_subscriptions (status)"
         )
@@ -397,96 +381,6 @@ def initialize_database(force: bool = False):
         wrapped.execute(
             "CREATE INDEX IF NOT EXISTS idx_quickbooks_oauth_states_expires_at ON quickbooks_oauth_states (expires_at)"
         )
-        subscription_count = wrapped.execute(
-            "SELECT COUNT(*) AS count FROM software_subscriptions"
-        ).fetchone()["count"]
-        if subscription_count == 0:
-            wrapped.executemany(
-                """
-                INSERT INTO software_subscriptions (
-                    name, description, category, department, point_of_contact, assigned_users,
-                    cost_2024_2025, cost_2025_2026, cost_2026_2027,
-                    billing_frequency, renewal_date, renewal_time_frame,
-                    vendor_rep, subscribed_since, status, notes
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    (
-                        "ArcGIS Online",
-                        "Cloud mapping and spatial analysis platform used for project maps and data visualization.",
-                        "GIS / Mapping",
-                        "Operations",
-                        "Operations",
-                        "Planning and analyst team",
-                        2800,
-                        3100,
-                        3300,
-                        "Annual",
-                        "2026-07-01",
-                        "Annual - July",
-                        "Esri Customer Success",
-                        "2018",
-                        "Active",
-                        "Confirm named-user allocation before the next renewal.",
-                    ),
-                    (
-                        "Lightcast Analyst",
-                        "Labor market and economic data subscription for workforce and industry analysis.",
-                        "Labor Market Data",
-                        "Research",
-                        "Research",
-                        "Research team",
-                        14500,
-                        15250,
-                        None,
-                        "Annual",
-                        "2026-09-01",
-                        "Annual - September",
-                        "Account Manager TBD",
-                        "2020",
-                        "Pending Renewal",
-                        "2026-2027 pricing pending vendor quote.",
-                    ),
-                    (
-                        "ZoomInfo",
-                        "Business contact and company intelligence used for prospecting and market research.",
-                        "Sales Intelligence",
-                        "Marketing",
-                        "Marketing",
-                        "Marketing and business development",
-                        12000,
-                        12600,
-                        13200,
-                        "Annual",
-                        "2027-03-01",
-                        "Annual - March",
-                        "",
-                        "2022",
-                        "Needs Review",
-                        "Vendor contact needs to be confirmed.",
-                    ),
-                    (
-                        "Canva Teams",
-                        "Design collaboration workspace for branded reports, presentations, and marketing assets.",
-                        "Design Tools",
-                        "Marketing",
-                        "Marketing",
-                        "Marketing and project managers",
-                        1500,
-                        1800,
-                        2100,
-                        "Annual",
-                        "2026-12-01",
-                        "Annual - December",
-                        "Canva Support",
-                        "2021",
-                        "Active",
-                        "Review seat count quarterly.",
-                    ),
-                ],
-            )
-
         connection.commit()
     finally:
         connection.close()

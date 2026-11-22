@@ -239,7 +239,7 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
     return () => window.clearTimeout(pollTimer);
   }, [fetchSeoMetrics, seoSyncStatus, showOverview]);
 
-  const [serviceLineMetrics, setServiceLineMetrics] = useState({ service_lines: [], updated_at: "" });
+  const [serviceLineMetrics, setServiceLineMetrics] = useState({ service_lines: [], updated_at: "", warnings: [] });
   const [isServiceLineLoading, setIsServiceLineLoading] = useState(showServiceLines);
   const [isServiceLineRefreshing, setIsServiceLineRefreshing] = useState(false);
   const [serviceLineSyncStatus, setServiceLineSyncStatus] = useState(null);
@@ -269,6 +269,7 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
       setServiceLineMetrics({
         service_lines: response.data?.service_lines || [],
         updated_at: response.data?.updated_at || "",
+        warnings: response.data?.warnings || [],
       });
       setServiceLineSyncStatus(response.data?.sync || null);
     } catch (fetchError) {
@@ -602,6 +603,8 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
       {showServiceLines ? (
       <Stack spacing={2.5} sx={{ pt: 1 }}>
         {serviceLineError ? <Alert severity="error">{serviceLineError}</Alert> : null}
+        {serviceLineSyncStatus?.status === "error" && serviceLineSyncStatus.last_error ? <Alert severity="error">{serviceLineSyncStatus.last_error}</Alert> : null}
+        {serviceLineMetrics.warnings.map((warning) => <Alert key={warning} severity="warning">{warning}</Alert>)}
 
         <Stack
           direction={{ xs: "column", sm: "row" }}
@@ -662,7 +665,7 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
                     {line.label} - Landing Page Visits
                   </Typography>
                 </Stack>
-                <Box sx={{ height: 320, minWidth: 0 }}>
+                {line.months.length ? <Box sx={{ height: 320, minWidth: 0 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={line.months} margin={{ top: 8, right: 18, bottom: 0, left: -12 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
@@ -696,7 +699,7 @@ export default function MarketingMetrics({ filters, showOverview = false, showSe
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
-                </Box>
+                </Box> : <Typography color="text.secondary" sx={{ py: 6, textAlign: "center" }}>No source data is available for this service line.</Typography>}
               </Paper>
             ))}
           </Box>

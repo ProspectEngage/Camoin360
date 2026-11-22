@@ -24,6 +24,7 @@ import {
 } from "recharts";
 
 import { API_BASE_URL, getApiErrorMessage, getAuthHeaders, handleUnauthorized } from "../auth";
+import { formatHours, formatPercent } from "./productivityFormatting";
 
 const API_URL = `${API_BASE_URL}/employee-productivity/billable-breakdown`;
 const CURRENT_YEAR = new Date().getFullYear();
@@ -56,18 +57,6 @@ const CHART_COLORS = {
  * @property {number} non_billable_hours
  * @property {number} total_hours
  */
-
-const formatHours = (value) =>
-  Number(value || 0).toLocaleString(undefined, {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 0,
-  });
-
-const formatPercent = (value) =>
-  `${Number(value || 0).toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 1,
-  })}%`;
 
 function ChartTooltip({ active, payload, totalHours }) {
   if (!active || !payload?.length) {

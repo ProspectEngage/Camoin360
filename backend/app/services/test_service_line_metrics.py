@@ -45,6 +45,27 @@ class ServiceLineMetricsTest(unittest.IsolatedAsyncioTestCase):
     def test_marketing_source_history_starts_in_2024(self):
         self.assertEqual(service_line_metrics.MARKETING_SOURCE_START_YEAR, 2024)
 
+    async def test_keeps_real_leadfeeder_visits_when_ga4_is_unavailable(self):
+        with (
+            patch.object(service_line_metrics, "_fetch_ga4_monthly_sessions", new=AsyncMock(side_effect=RuntimeError("credentials unavailable"))),
+            patch.object(service_line_metrics, "_fetch_leadfeeder_monthly_visits", new=AsyncMock(return_value={("Prospecting", "202601"): 7})),
+        ):
+            result = await service_line_metrics._load_service_line_marketing_metrics()
+
+        month = next(line for line in result["service_lines"] if line["key"] == "prospecting")["months"][0]
+        self.assertEqual(month["leadfeeder_visits"], 7)
+        self.assertIsNone(month["ga_visits"])
+        self.assertEqual(result["source_months"], [])
+        self.assertIn("GA4 sessions are unavailable", result["warnings"][0])
+
+    async def test_fails_when_both_marketing_sources_are_unavailable(self):
+        with (
+            patch.object(service_line_metrics, "_fetch_ga4_monthly_sessions", new=AsyncMock(side_effect=RuntimeError("GA4 unavailable"))),
+            patch.object(service_line_metrics, "_fetch_leadfeeder_monthly_visits", new=AsyncMock(side_effect=RuntimeError("Dynamics unavailable"))),
+        ):
+            with self.assertRaises(RuntimeError):
+                await service_line_metrics._load_service_line_marketing_metrics()
+
     async def test_refresh_records_error_without_raising(self):
         connection = self._fake_connection()
         with (

@@ -13,7 +13,7 @@ import {
   useTheme,
 } from "@mui/material";
 import EconomicIndicators from "./components/EconomicIndicators";
-import { EmptyState, ManagementSectionHeading, managementButtonSx, managementCardSx } from "./components/UiPrimitives";
+import { ManagementSectionHeading, managementButtonSx, managementCardSx } from "./components/UiPrimitives";
 import CompanyFinancials from "./components/CompanyFinancials";
 import EmployeeProductivity from "./components/EmployeeProductivity";
 import MarketingMetrics, { MarketingOverview } from "./components/MarketingMetrics";
@@ -70,7 +70,7 @@ const views = {
     label: "Service Line Financials",
     title: "Service Line Financials",
     description:
-      "Dummy monthly and quarterly financial trends by consulting service line.",
+      "Monthly contracted Camoin fees by primary service line.",
   },
   salesOutlook: {
     label: "Sales Outlook",
@@ -85,7 +85,7 @@ const views = {
   contractBacklogSelected: {
     label: "Contract Backlog",
     title: "Sales Outlook - Contract Backlog Selected",
-    description: "Annual total contract backlog and total monthly revenue from Dynamics.",
+    description: "Monthly Total Project Fee and Fee for Camoin by Contract Date.",
   },
   rfpOverallSuccessRate: {
     label: "RFP Overall Success Rate",
@@ -405,7 +405,6 @@ export default function ManagementDashboard({ onLogout }) {
               </Tooltip>
               {navGroups.map((group) => {
                 const isOpen = openGroup === group.key;
-                const hasActiveView = group.views.includes(activeView);
                 return (
                   <Box key={group.key}>
                     <Tooltip arrow disableHoverListener={!sidebarCollapsed} placement="right" title={group.label}>
@@ -423,7 +422,7 @@ export default function ManagementDashboard({ onLogout }) {
                           justifyContent: sidebarCollapsed ? "center" : "flex-start",
                           borderRadius: 1,
                           color: "common.white",
-                          backgroundColor: hasActiveView ? "rgba(255,255,255,0.16)" : "transparent",
+                          backgroundColor: isOpen ? "rgba(255,255,255,0.16)" : "transparent",
                           fontWeight: 800,
                           minWidth: 0,
                           px: sidebarCollapsed ? 1 : 2,
@@ -613,15 +612,8 @@ export default function ManagementDashboard({ onLogout }) {
                       </Paper>
                     ))}
                   </Box>
-                  <Paper elevation={0} sx={{ ...managementCardSx, overflow: "hidden" }}>
-                    <EmptyState
-                      actionLabel="Refresh"
-                      description={`${currentView.title} data will appear here after its reporting source is connected.`}
-                      icon="database"
-                      onAction={() => window.location.reload()}
-                      title={`${currentView.title} is not available yet`}
-                    />
-                  </Paper>
+                  <ManagementSectionHeading title="Projects at a glance" description="Live Dynamics project volumes, proposals, and contracted fees. Open Service Lines & Projects to filter the reporting period." />
+                  <ProductivityProjects />
                 </Stack>
               )}
 

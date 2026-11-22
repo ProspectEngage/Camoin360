@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Box, CircularProgress, Typography } from "@mui/material";
 import {
   clearAuthToken,
   getAllowedDashboardViews,
@@ -10,14 +11,24 @@ import {
   onUnauthorized,
   savePreferredDashboardView,
 } from "./auth";
-import AdminDashboard from "./adminDashboard";
-import LandingPage from "./landingPage";
 import LegalPage from "./legalPages";
 import Login from "./login";
-import QuickBooksSettings from "./QuickBooksSettings";
-import ConsultingDashboard from "./consultingDashboard";
-import ManagementDashboard from "./managementDashboard";
-import ProspectingDashboard from "./prospectingDashboard";
+
+const AdminDashboard = lazy(() => import("./adminDashboard"));
+const LandingPage = lazy(() => import("./landingPage"));
+const QuickBooksSettings = lazy(() => import("./QuickBooksSettings"));
+const ConsultingDashboard = lazy(() => import("./consultingDashboard"));
+const ManagementDashboard = lazy(() => import("./managementDashboard"));
+const ProspectingDashboard = lazy(() => import("./prospectingDashboard"));
+
+function LoadingView() {
+  return (
+    <Box component="main" role="status" aria-label="Loading dashboard" sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", gap: 2 }}>
+      <CircularProgress size={28} aria-hidden="true" />
+      <Typography>Loading dashboard…</Typography>
+    </Box>
+  );
+}
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(() => Boolean(getAuthToken()));
@@ -64,7 +75,11 @@ export default function App() {
 
   if (isLoggedIn) {
     if (window.location.pathname === "/settings/integrations/quickbooks") {
-      return <QuickBooksSettings onLogout={handleLogout} />;
+      return (
+        <Suspense fallback={<LoadingView />}>
+          <QuickBooksSettings onLogout={handleLogout} />
+        </Suspense>
+      );
     }
 
     const allowedDashboardViews = getAllowedDashboardViews(currentUser);
@@ -76,23 +91,18 @@ export default function App() {
       ? dashboardView
       : getDefaultDashboardView(currentUser);
 
-    if (resolvedDashboardView === "admin") {
-      return <AdminDashboard onLogout={handleLogout} />;
-    }
+    const Dashboard = {
+      admin: AdminDashboard,
+      management: ManagementDashboard,
+      prospecting: ProspectingDashboard,
+      consulting: ConsultingDashboard,
+    }[resolvedDashboardView] || LandingPage;
 
-    if (resolvedDashboardView === "management") {
-      return <ManagementDashboard onLogout={handleLogout} />;
-    }
-
-    if (resolvedDashboardView === "prospecting") {
-      return <ProspectingDashboard onLogout={handleLogout} />;
-    }
-
-    if (resolvedDashboardView === "consulting") {
-      return <ConsultingDashboard onLogout={handleLogout} />;
-    }
-
-    return <LandingPage onLogout={handleLogout} />;
+    return (
+      <Suspense fallback={<LoadingView />}>
+        <Dashboard onLogout={handleLogout} />
+      </Suspense>
+    );
   }
 
   return <Login onLogin={handleLogin} />;

@@ -1,11 +1,10 @@
+import { ChartEmpty, ChartError, ChartLoading, formatChartCurrency, formatChartMonth } from "./ChartFeedback";
 import { filterReportingRows } from "../reportingPeriod";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
-  Alert,
   Box,
   Button,
-  CircularProgress,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -96,14 +95,13 @@ function FinancialTimelineTick({ x, y, payload }) {
     : "";
   const quarterLabel = month ? `Q${Math.ceil(month / 3)}` : "";
   const showQuarter = [2, 5, 8, 11].includes(month);
-  const showYear = month === 7;
 
   return (
     <g transform={`translate(${x},${y})`}>
       <text fill="#475569" fontSize="10" textAnchor="middle">
         <tspan x="0" dy="12">{monthLabel}</tspan>
         <tspan fontWeight="700" x="0" dy="12">{showQuarter ? quarterLabel : ""}</tspan>
-        <tspan fontWeight="700" x={showYear ? -(MONTH_PIXEL_WIDTH / 2) : 0} dy="12">{showYear ? year : ""}</tspan>
+        <tspan fontWeight="700" x="0" dy="12">{year}</tspan>
       </text>
     </g>
   );
@@ -127,13 +125,13 @@ function FinancialBarChart({ color, data, dataKey, title }) {
     >
       <Stack spacing={0.5} sx={{ mb: 2 }}>
         <Typography color="text.primary" fontWeight={800}>
-          {title}
+          {title} — contracted fees (USD)
         </Typography>
         <Typography color="text.secondary" variant="body2">
-          Live contracted Camoin fees. Total {formatCurrency(total)}.
+          Fee for Camoin by Contract Date. Selected-period total: {formatCurrency(total)} USD.
         </Typography>
       </Stack>
-      <Box sx={{ display: "flex", height: 340, maxWidth: "100%", minWidth: 0, width: "100%" }}>
+      {!data.length ? <ChartEmpty label="contracted fee data" /> : <Box sx={{ display: "flex", height: 340, maxWidth: "100%", minWidth: 0, width: "100%" }}>
         <Box sx={{ flex: "0 0 58px", height: 320, position: "relative", zIndex: 1 }}>
           <ResponsiveContainer height="100%" width="100%">
             <BarChart data={data} margin={{ top: 8, right: 0, bottom: 62, left: 0 }}>
@@ -154,13 +152,13 @@ function FinancialBarChart({ color, data, dataKey, title }) {
               tick={<FinancialTimelineTick />}
             />
             <YAxis hide width={0} />
-            <Tooltip {...tooltipStyle} formatter={(value) => [formatCurrency(value), title]} />
+            <Tooltip {...tooltipStyle} labelFormatter={formatChartMonth} formatter={(value) => [formatChartCurrency(value), `${title} fees (USD)`]} />
             <Bar dataKey={dataKey} fill={color} fillOpacity={0.88} maxBarSize={44} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
         </Box>
         </Box>
-      </Box>
+      </Box>}
     </Paper>
   );
 }
@@ -219,12 +217,14 @@ export default function ServiceLineFinancials({ filters } = {}) {
   }
 
   if (isLoading) {
-    return <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}><CircularProgress /></Box>;
+    return <ChartLoading label="service-line contracted fees" />;
   }
+
+  if (error && !lastRefreshed) return <ChartError message={error} onRetry={() => fetchFinancials()} />;
 
   return (
     <Stack spacing={2.5}>
-      {error ? <Alert severity="error">{error}</Alert> : null}
+      {error ? <ChartError message={error} stale retrying={isRefreshing} onRetry={refreshFinancials} /> : null}
       <Paper
         elevation={0}
         sx={{
@@ -240,7 +240,7 @@ export default function ServiceLineFinancials({ filters } = {}) {
             <Stack alignItems="center" direction="row" spacing={1}>
               <Box sx={{ backgroundColor: "success.main", borderRadius: "50%", height: 8, width: 8 }} />
               <Typography color="success.dark" fontWeight={800} variant="overline">
-                Live Dynamics data
+                {error ? "Previously loaded Dynamics data" : "Dynamics contracted fees"}
               </Typography>
             </Stack>
             <Typography color="primary.main" fontWeight={850} variant="h6">
@@ -292,10 +292,11 @@ export default function ServiceLineFinancials({ filters } = {}) {
 
       <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2 }}>
         <Typography color="text.secondary" sx={{ mt: 1.25 }} variant="caption">
-          {financials.record_counts?.included?.toLocaleString() || 0} mapped contracted projects included. Values use Fee for Camoin and Contract Date from Dynamics; subcontractor fees are excluded.
+          {financials.record_counts?.included?.toLocaleString() || 0} mapped contracted projects in the source dataset (before date filters). Values use Fee for Camoin and Contract Date from Dynamics; subcontractor fees are excluded.
         </Typography>
       </Paper>
 
+      {!serviceLines.length ? <ChartEmpty label="service-line data" /> : null}
       <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "minmax(0, 1fr)", lg: "repeat(2, minmax(0, 1fr))" }, minWidth: 0 }}>
         {serviceLines.map((serviceLine, index) => (
           <FinancialBarChart

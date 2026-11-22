@@ -2754,15 +2754,15 @@ async def _load_website_visit_metrics_from_dynamics(range_key: str = "since_2022
         warnings = []
         if isinstance(ga4_result, Exception):
             warnings.append(f"GA4 sessions are unavailable: {ga4_result}")
-            ga4_site_traffic = {bucket[window["bucket_key"]]: 0 for bucket in buckets}
+            ga4_site_traffic = {bucket[window["bucket_key"]]: None for bucket in buckets}
         else:
             ga4_site_traffic = ga4_result
 
         if isinstance(target_naics_result, Exception):
             warnings.append(f"Target-industry configuration is unavailable: {target_naics_result}")
             leadfeeder_visit_counts = {
-                "target_counts_by_bucket": {bucket[window["bucket_key"]]: 0 for bucket in buckets},
-                "target_total": 0,
+                "target_counts_by_bucket": {bucket[window["bucket_key"]]: None for bucket in buckets},
+                "target_total": None,
                 "landing_pages": [],
             }
         else:
@@ -2779,8 +2779,8 @@ async def _load_website_visit_metrics_from_dynamics(range_key: str = "since_2022
             except Exception as exc:
                 warnings.append(f"Leadfeeder visits are unavailable: {exc}")
                 leadfeeder_visit_counts = {
-                    "target_counts_by_bucket": {bucket[window["bucket_key"]]: 0 for bucket in buckets},
-                    "target_total": 0,
+                    "target_counts_by_bucket": {bucket[window["bucket_key"]]: None for bucket in buckets},
+                    "target_total": None,
                     "landing_pages": [],
                 }
 
@@ -2802,7 +2802,7 @@ async def _load_website_visit_metrics_from_dynamics(range_key: str = "since_2022
         "visitors_source": "Google Analytics 4 sessions",
         "target_visitors_source": "Leadfeeder target-industry visit records",
         "updated_at": current_time.isoformat(),
-        "total_visitors": sum(ga4_site_traffic.values()),
+        "total_visitors": sum(ga4_site_traffic.values()) if not isinstance(ga4_result, Exception) else None,
         "target_total_visitors": leadfeeder_visit_counts["target_total"],
         "months": visit_buckets,
         "landing_pages": leadfeeder_visit_counts["landing_pages"],

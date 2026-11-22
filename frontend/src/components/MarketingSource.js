@@ -107,7 +107,7 @@ export function buildMarketingSourceCharts(rows, filters = {}) {
 
 export default function MarketingSource() {
   const mountedRef = useRef(true);
-  const [metrics, setMetrics] = useState({ source_months: [], updated_at: "" });
+  const [metrics, setMetrics] = useState({ source_months: [], updated_at: "", warnings: [] });
   const [sync, setSync] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -129,6 +129,7 @@ export default function MarketingSource() {
       setMetrics({
         source_months: (response.data?.source_months || []).filter((row) => row.year >= 2024),
         updated_at: response.data?.updated_at || "",
+        warnings: response.data?.warnings || [],
       });
       setSync(response.data?.sync || null);
     } catch (fetchError) {
@@ -181,6 +182,7 @@ export default function MarketingSource() {
     <Stack spacing={2.5}>
       {error ? <Alert severity="error">{error}</Alert> : null}
       {sync?.status === "error" && sync.last_error ? <Alert severity="warning">{sync.last_error}</Alert> : null}
+      {metrics.warnings.map((warning) => <Alert key={warning} severity="warning">{warning}</Alert>)}
 
       <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2 }}>
         <Stack direction={{ xs: "column", lg: "row" }} spacing={1.5} alignItems={{ lg: "center" }}>
@@ -263,7 +265,7 @@ export default function MarketingSource() {
                 ))}
               </Box>
             </Stack>
-          ) : <Typography color="text.secondary" sx={{ py: 8, textAlign: "center" }}>No traffic matches these filters.</Typography>}
+          ) : <Typography color="text.secondary" sx={{ py: 8, textAlign: "center" }}>{metrics.source_months.length ? "No traffic matches these filters." : "No GA4 source data is available."}</Typography>}
         </Paper>
 
         <Paper elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2.5, minWidth: 0, order: 1 }}>

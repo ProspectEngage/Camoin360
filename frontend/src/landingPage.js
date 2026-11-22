@@ -1,16 +1,6 @@
+import DashboardShell from "./components/DashboardShell";
 import { useEffect, useState } from "react";
-import {
-  Box,
-  Button,
-  Container,
-  Divider,
-  IconButton,
-  SvgIcon,
-  Stack,
-  Tooltip,
-  Typography,
-  useTheme,
-} from "@mui/material";
+import { Stack } from "@mui/material";
 
 import DataQualityTable from "./components/DataQualityTable";
 import DuplicateAccounts from "./components/DuplicateAccounts";
@@ -18,7 +8,6 @@ import MetricsDashboard from "./components/MetricsDashboard";
 import SummaryAnalytics from "./components/SummaryAnalytics";
 import { API_BASE_URL, getAuthHeaders } from "./auth";
 import { prefetch } from "./apiClient";
-import { SidebarResizeHandle, useResizableSidebar } from "./useResizableSidebar";
 
 const views = {
   seamless: {
@@ -53,15 +42,6 @@ const views = {
   }
 };
 
-const iconPaths = {
-  chart: "M5 19V9h3v10H5Zm5 0V5h3v14h-3Zm5 0v-7h3v7h-3Z",
-  checklist: "M5.5 7.5 7 9l3-3 .9.9L7 10.8 4.6 8.4l.9-.9ZM13 8h7v2h-7V8ZM5.5 14.5 7 16l3-3 .9.9L7 17.8l-2.4-2.4.9-.9ZM13 15h7v2h-7v-2Z",
-  collapse: "M15.5 5 8.5 12l7 7-1.4 1.4L5.7 12l8.4-8.4L15.5 5Zm4 0-7 7 7 7-1.4 1.4L9.7 12l8.4-8.4L19.5 5Z",
-  duplicate: "M7 7V5c0-1.1.9-2 2-2h8c1.1 0 2 .9 2 2v10c0 1.1-.9 2-2 2h-2v2c0 1.1-.9 2-2 2H5c-1.1 0-2-.9-2-2V9c0-1.1.9-2 2-2h2Zm2 0h4c1.1 0 2 .9 2 2v6h2V5H9v2Zm-4 2v10h8V9H5Z",
-  expand: "m8.5 5 7 7-7 7 1.4 1.4 8.4-8.4-8.4-8.4L8.5 5Zm-4 0 7 7-7 7 1.4 1.4 8.4-8.4-8.4-8.4L4.5 5Z",
-  signout: "M10 17v-2h4V9h-4V7h6v10h-6Zm-1-1-5-4 5-4v3h6v2H9v3Z",
-  sync: "M7 7h9.2l-2.6-2.6L15 3l5 5-5 5-1.4-1.4L16.2 9H7V7Zm10 10H7.8l2.6 2.6L9 21l-5-5 5-5 1.4 1.4L7.8 15H17v2Z",
-};
 
 const prefetchUrls = {
   seamless: `${API_BASE_URL}/metrics`,
@@ -70,13 +50,6 @@ const prefetchUrls = {
   summaryAnalytics: `${API_BASE_URL}/accounts/summary-analytics`,
 };
 
-function NavIcon({ name }) {
-  return (
-    <SvgIcon fontSize="small" viewBox="0 0 24 24">
-      <path d={iconPaths[name]} />
-    </SvgIcon>
-  );
-}
 
 function getViewForPath(pathname) {
   const matchingView = Object.entries(views).find(([_viewKey, view]) => view.route === pathname);
@@ -86,10 +59,6 @@ function getViewForPath(pathname) {
 
 export default function LandingPage({ onLogout }) {
   const [activeView, setActiveView] = useState(() => getViewForPath(window.location.pathname));
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const sidebarResize = useResizableSidebar("maintenance");
-  const theme = useTheme();
-  const currentView = views[activeView];
 
   function navigateToView(viewKey) {
     setActiveView(viewKey);
@@ -122,287 +91,15 @@ export default function LandingPage({ onLogout }) {
   }, []);
 
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        background: `radial-gradient(circle at top left, ${theme.palette.secondary.main}12, transparent 30%), ${theme.palette.background.default}`,
-      }}
-    >
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: {
-            xs: "1fr",
-            md: sidebarCollapsed ? "88px minmax(0, 1fr)" : `${sidebarResize.width}px minmax(0, 1fr)`,
-          },
-          minHeight: "100vh",
-          transition: sidebarResize.isResizing ? "none" : "grid-template-columns 180ms ease",
-        }}
-      >
-        <Box
-          component="aside"
-          sx={{
-            alignSelf: { md: "start" },
-            backgroundColor: "primary.main",
-            color: "common.white",
-            height: { md: "100vh" },
-            overflow: { md: "hidden" },
-            p: { xs: 2, md: sidebarCollapsed ? 2 : 3 },
-            position: { xs: "relative", md: "sticky" },
-            top: { md: 0 },
-            transition: "padding 180ms ease",
-          }}
-        >
-          {!sidebarCollapsed && (
-            <SidebarResizeHandle
-              isResizing={sidebarResize.isResizing}
-              onReset={sidebarResize.resetWidth}
-              onResizeStart={sidebarResize.startResize}
-            />
-          )}
-          <Stack
-            spacing={{ xs: 1.5, md: 3 }}
-            sx={{
-              height: { md: "100%" },
-              minHeight: 0,
-            }}
-          >
-            <Box
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 2,
-              }}
-            >
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: sidebarCollapsed ? "center" : "space-between",
-                  alignItems: "flex-start",
-                  gap: 2,
-                }}
-              >
-                {!sidebarCollapsed && (
-                  <Box>
-                    <Typography component="h1" sx={{ fontSize: "1.55rem", fontWeight: 800, lineHeight: 1.1 }}>
-                      Camoin 360
-                    </Typography>
-                    <Typography sx={{ color: "rgba(255,255,255,0.72)", mt: 0.75 }} variant="body2">
-                      Sophie Maintenance
-                    </Typography>
-                  </Box>
-                )}
+    <DashboardShell module="maintenance" label="Sophie Maintenance" views={views} activeView={activeView} onNavigate={navigateToView} onLogout={onLogout} onPrefetch={prefetchView}>
+      <Stack spacing={3}>
 
-                <IconButton
-                  aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                  onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
-                  size="small"
-                  sx={{
-                    borderColor: "rgba(255,255,255,0.32)",
-                    borderStyle: "solid",
-                    borderWidth: 1,
-                    color: "common.white",
-                    height: 36,
-                    width: 36,
-                    display: { xs: "none", md: "inline-flex" },
-                    "&:hover": {
-                      borderColor: "common.white",
-                      backgroundColor: "rgba(255,255,255,0.10)",
-                    },
-                  }}
-                  title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-                >
-                  <NavIcon name={sidebarCollapsed ? "expand" : "collapse"} />
-                </IconButton>
-              </Box>
-            </Box>
-
-            <Divider sx={{ borderColor: "rgba(255,255,255,0.12)" }} />
-
-            {!sidebarCollapsed && (
-              <Typography
-                sx={{ color: "rgba(255,255,255,0.48)", fontSize: "0.68rem", fontWeight: 800, letterSpacing: "0.12em", px: 1, textTransform: "uppercase" }}
-              >
-                Maintenance tools
-              </Typography>
-            )}
-
-            <Stack
-              component="nav"
-              direction={{ xs: "row", md: "column" }}
-              spacing={0.75}
-              sx={{
-                flex: { md: 1 },
-                minHeight: 0,
-                overflowX: { xs: "auto", md: "visible" },
-                overflowY: { md: "auto" },
-                pb: { xs: 0.5, md: 0 },
-              }}
-            >
-              {Object.entries(views).map(([viewKey, view]) => {
-                const isActive = activeView === viewKey;
-
-                return (
-                  <Tooltip arrow disableHoverListener={!sidebarCollapsed} key={viewKey} placement="right" title={view.label}>
-                    <Button
-                      fullWidth
-                      onFocus={() => prefetchView(viewKey)}
-                      onMouseEnter={() => prefetchView(viewKey)}
-                      onClick={() => navigateToView(viewKey)}
-                      startIcon={<NavIcon name={view.icon} />}
-                      sx={{
-                        justifyContent: sidebarCollapsed ? "center" : "flex-start",
-                        border: "1px solid",
-                        borderColor: isActive ? "rgba(255,255,255,0.24)" : "transparent",
-                        borderRadius: 2,
-                        boxShadow: isActive ? "0 8px 22px rgba(0,0,0,0.16)" : "none",
-                        color: isActive ? "primary.main" : "rgba(255,255,255,0.82)",
-                        backgroundColor: isActive
-                          ? "common.white"
-                          : "transparent",
-                        fontWeight: isActive ? 800 : 650,
-                        minWidth: 0,
-                        px: sidebarCollapsed ? 1 : 2,
-                        py: 1.2,
-                        position: "relative",
-                        transition: "background-color 150ms ease, color 150ms ease, transform 150ms ease, box-shadow 150ms ease",
-                        whiteSpace: sidebarCollapsed ? "nowrap" : "normal",
-                        width: { xs: "auto", md: "100%" },
-                        "&::before": {
-                          backgroundColor: "secondary.main",
-                          borderRadius: 999,
-                          content: isActive ? '""' : 'none',
-                          height: 22,
-                          left: 5,
-                          position: "absolute",
-                          width: 3,
-                        },
-                        "& .MuiButton-startIcon": {
-                          alignItems: "center",
-                          backgroundColor: isActive ? "rgba(102,138,46,0.12)" : "rgba(255,255,255,0.08)",
-                          borderRadius: 1.5,
-                          display: "flex",
-                          height: 30,
-                          justifyContent: "center",
-                          m: sidebarCollapsed ? 0 : undefined,
-                          width: 30,
-                        },
-                        "&:hover": {
-                          backgroundColor: isActive
-                            ? "common.white"
-                            : "rgba(255,255,255,0.10)",
-                          color: isActive ? "primary.main" : "common.white",
-                          transform: { md: "translateX(2px)" },
-                        },
-                      }}
-                      title={view.label}
-                    >
-                      {!sidebarCollapsed && view.label}
-                    </Button>
-                  </Tooltip>
-                );
-              })}
-            </Stack>
-
-            <Button
-              fullWidth
-              onClick={onLogout}
-              startIcon={<NavIcon name="signout" />}
-              sx={{
-                borderColor: "rgba(255,255,255,0.42)",
-                color: "common.white",
-                borderRadius: 1,
-                fontWeight: 800,
-                minWidth: 0,
-                justifyContent: sidebarCollapsed ? "center" : "flex-start",
-                px: sidebarCollapsed ? 1 : 2,
-                alignSelf: { xs: "flex-start", md: "stretch" },
-                fontSize: { xs: 0, md: "0.875rem" },
-                position: { xs: "absolute", md: "static" },
-                right: { xs: 16, md: "auto" },
-                top: { xs: 16, md: "auto" },
-                width: { xs: 40, md: "100%" },
-                "& .MuiButton-startIcon": {
-                  m: { xs: 0, md: sidebarCollapsed ? 0 : undefined },
-                },
-                "&:hover": {
-                  borderColor: "common.white",
-                  backgroundColor: "rgba(255,255,255,0.10)",
-                },
-              }}
-              title="Sign out"
-              variant="outlined"
-            >
-              {!sidebarCollapsed && "Sign out"}
-            </Button>
-          </Stack>
-        </Box>
-
-        <Box component="main" sx={{ py: { xs: 3, md: 5.5 } }}>
-          <Container
-            maxWidth={false}
-            sx={{
-              px: {
-                xs: 2,
-                md: 3,
-              },
-            }}
-          >
-            <Stack spacing={3}>
-              <Box
-                sx={{
-                  borderBottom: "1px solid",
-                  borderColor: "divider",
-                  pb: { xs: 2.5, md: 3 },
-                  position: "relative",
-                  "&::after": {
-                    backgroundColor: "secondary.main",
-                    bottom: -1,
-                    content: '""',
-                    height: 3,
-                    left: 0,
-                    position: "absolute",
-                    width: 48,
-                  },
-                }}
-              >
-                <Typography
-                  sx={{ color: "secondary.dark", fontSize: "0.7rem", fontWeight: 800, letterSpacing: "0.11em", mb: 0.75, textTransform: "uppercase" }}
-                >
-                  Sophie Maintenance
-                </Typography>
-                <Typography
-                  component="h2"
-                  sx={{
-                    color: "primary.main",
-                    fontSize: { xs: "2rem", md: "2.45rem" },
-                    fontWeight: 750,
-                    letterSpacing: "-0.035em",
-                    lineHeight: 1.1,
-                    mb: 1,
-                  }}
-                >
-                  {currentView.title}
-                </Typography>
-                <Typography
-                  sx={{
-                    color: "text.secondary",
-                    fontSize: { xs: "1rem", md: "1.08rem" },
-                    maxWidth: 760,
-                  }}
-                >
-                  {currentView.description}
-                </Typography>
-              </Box>
 
               {activeView === "seamless" && <MetricsDashboard />}
               {activeView === "dataQuality" && <DataQualityTable />}
               {activeView === "duplicateAccounts" && <DuplicateAccounts />}
               {activeView === "summaryAnalytics" && <SummaryAnalytics />}
             </Stack>
-          </Container>
-        </Box>
-      </Box>
-    </Box>
+    </DashboardShell>
   );
 }

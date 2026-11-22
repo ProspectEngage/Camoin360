@@ -102,32 +102,6 @@ function average(rows, key) {
   return rows.reduce((sum, row) => sum + Number(row[key] || 0), 0) / rows.length;
 }
 
-function buildProjectionRows(monthlyFinancials) {
-  if (monthlyFinancials.length < 6) {
-    return [];
-  }
-
-  const recentQuarter = monthlyFinancials.slice(-3);
-  const priorQuarter = monthlyFinancials.slice(-6, -3);
-  const latestRow = monthlyFinancials[monthlyFinancials.length - 1];
-  const nextRows = [];
-  const salesTrend = average(recentQuarter, "sales") - average(priorQuarter, "sales");
-  const netIncomeTrend = average(recentQuarter, "netIncome") - average(priorQuarter, "netIncome");
-  const cashTrend = average(recentQuarter, "cashOnHand") - average(priorQuarter, "cashOnHand");
-
-  for (let index = 1; index <= 3; index += 1) {
-    const date = new Date(Number(latestRow.year), Number(latestRow.monthNumber) - 1 + index, 1);
-    nextRows.push({
-      cashOnHand: Math.round(latestRow.cashOnHand + (cashTrend / 3) * index),
-      month: date.toLocaleDateString(undefined, { month: "short", year: "2-digit" }),
-      netIncome: Math.round(latestRow.netIncome + (netIncomeTrend / 3) * index),
-      sales: Math.round(latestRow.sales + (salesTrend / 3) * index),
-    });
-  }
-
-  return nextRows;
-}
-
 function InsightCard({ label, value }) {
   return (
     <Paper elevation={0} sx={{ backgroundColor: "#F8FAFC", border: "1px solid", borderColor: "divider", borderRadius: 2, p: 2 }}>
@@ -148,7 +122,7 @@ export default function CompanyFinancials({ filters } = {}) {
   const brandGreen = theme.palette.secondary.main;
   const [monthlyFinancials, setMonthlyFinancials] = useState([]);
   const [updatedAt, setUpdatedAt] = useState("");
-  const [source, setSource] = useState("QuickBooks Online sandbox");
+  const [source, setSource] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -193,7 +167,7 @@ export default function CompanyFinancials({ filters } = {}) {
 
       setMonthlyFinancials(response.data?.rows || []);
       setUpdatedAt(response.data?.updated_at || "");
-      setSource(response.data?.source || "QuickBooks Online sandbox");
+      setSource(response.data?.source || "QuickBooks Online");
     } catch (requestError) {
       if (!isMountedRef.current || handleUnauthorized(requestError)) return;
 
@@ -238,15 +212,12 @@ export default function CompanyFinancials({ filters } = {}) {
     () => Object.fromEntries(salesYearTicks.map(({ month, year }) => [month, year])),
     [salesYearTicks]
   );
-  const projectionRows = useMemo(() => buildProjectionRows(displayRows), [displayRows]);
   const latestMonth = displayRows[displayRows.length - 1] || {};
   const recentQuarter = displayRows.slice(-3);
   const priorQuarter = displayRows.slice(-6, -3);
   const recentSalesAverage = average(recentQuarter, "sales");
   const priorSalesAverage = average(priorQuarter, "sales");
   const salesChange = priorSalesAverage ? ((recentSalesAverage - priorSalesAverage) / priorSalesAverage) * 100 : 0;
-  const projectedQuarterSales = projectionRows.reduce((sum, row) => sum + row.sales, 0);
-  const projectedQuarterNetIncome = projectionRows.reduce((sum, row) => sum + row.netIncome, 0);
   const updatedLabel = updatedAt ? new Date(updatedAt).toLocaleString() : "";
 
   return (
@@ -269,7 +240,7 @@ export default function CompanyFinancials({ filters } = {}) {
           </Stack>
         </Alert>
       ) : null}
-      {!error ? (
+      {!isLoading && !error && displayRows.length ? (
       <Paper
         elevation={0}
         sx={{
@@ -343,11 +314,11 @@ export default function CompanyFinancials({ filters } = {}) {
 
       {!isLoading && !error && !displayRows.length ? (
         <Alert severity="info" sx={{ borderRadius: 2 }}>
-          QuickBooks returned no financial rows for the configured sandbox company.
+          QuickBooks returned no financial rows for the selected period.
         </Alert>
       ) : null}
 
-      {!isLoading && error ? null : (
+      {!isLoading && !error && displayRows.length ? (
       <ChartPanel
         subtitle={`Monthly sales from ${source} (${displayRows.length.toLocaleString()} values).`}
         title="Monthly Sales"
@@ -367,9 +338,9 @@ export default function CompanyFinancials({ filters } = {}) {
           </LineChart>
         </ResponsiveContainer>
       </ChartPanel>
-      )}
+      ) : null}
 
-      {!isLoading && error ? null : (
+      {!isLoading && !error && displayRows.length ? (
       <Box sx={{ display: "grid", gap: 2.5, gridTemplateColumns: { xs: "1fr", xl: "1fr 1fr" } }}>
         <ChartPanel subtitle="Grouped bar chart showing QuickBooks liquidity measures." title="Cash on Hand & Current Ratio">
           <ResponsiveContainer width="100%" height="100%">
@@ -433,7 +404,7 @@ export default function CompanyFinancials({ filters } = {}) {
           </ResponsiveContainer>
         </ChartPanel>
       </Box>
-      )}
+      ) : null}
 
       <Dialog
         fullWidth
@@ -453,7 +424,6 @@ export default function CompanyFinancials({ filters } = {}) {
             <Tabs onChange={(_event, value) => setAnalysisTab(value)} sx={{ mt: 1 }} value={analysisTab}>
               <Tab label="Analysis" value="analysis" />
               <Tab label="Snipits" value="snipits" />
-              <Tab label="Projections" value="projections" />
             </Tabs>
           ) : null}
         </DialogTitle>
@@ -465,7 +435,7 @@ export default function CompanyFinancials({ filters } = {}) {
                   Generate an analysis of company financials
                 </Typography>
                 <Typography color="text.secondary" sx={{ mt: 0.75 }}>
-                  Review the current financial data, trends, and projections using the selected reporting period.
+                  Review the current financial data and trends using the selected reporting period.
                 </Typography>
               </Box>
               <Button onClick={() => setIsAnalysisGenerated(true)} sx={{ fontWeight: 800, px: 3 }} variant="contained">
@@ -485,7 +455,7 @@ export default function CompanyFinancials({ filters } = {}) {
                 QuickBooks readout: sales changed {salesChange.toFixed(1)}% versus the prior comparable quarter. Net income is {formatCurrency(latestMonth.netIncome)} in the latest month, with liquidity shown by cash on hand and current ratio across the selected period.
               </Typography>
               <Typography color="text.secondary">
-                Balance sheet indicators show owner equity, leverage, and return on assets from the connected QuickBooks sandbox reports. Use refresh to pull the latest report values after sandbox changes.
+                Balance sheet indicators show owner equity, leverage, and return on assets from the connected QuickBooks reports. Use refresh to pull the latest report values.
               </Typography>
             </Stack>
           ) : null}
@@ -505,28 +475,6 @@ export default function CompanyFinancials({ filters } = {}) {
             </Stack>
           ) : null}
 
-          {isAnalysisGenerated && analysisTab === "projections" ? (
-            <Stack spacing={2}>
-              <Box sx={{ display: "grid", gap: 1.5, gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" } }}>
-                <InsightCard label="Projected Next Quarter Sales" value={formatCurrency(projectedQuarterSales)} />
-                <InsightCard label="Projected Next Quarter Net Income" value={formatCurrency(projectedQuarterNetIncome)} />
-              </Box>
-              <Typography color="text.secondary">
-                QuickBooks projection: using the latest quarter-over-quarter trend, next quarter sales and net income are estimated from the connected sandbox report history.
-              </Typography>
-              <Stack spacing={1}>
-                {projectionRows.map((row) => (
-                  <Paper key={row.month} elevation={0} sx={{ border: "1px solid", borderColor: "divider", borderRadius: 2, p: 1.5 }}>
-                    <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1}>
-                      <Typography fontWeight={800}>{row.month}</Typography>
-                      <Typography color="text.secondary">Sales {formatCurrency(row.sales)}</Typography>
-                      <Typography color="text.secondary">Net Income {formatCurrency(row.netIncome)}</Typography>
-                    </Stack>
-                  </Paper>
-                ))}
-              </Stack>
-            </Stack>
-          ) : null}
         </DialogContent>
       </Dialog>
     </Stack>
