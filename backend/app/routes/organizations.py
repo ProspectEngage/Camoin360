@@ -101,6 +101,8 @@ async def remove_organization(organization_id: int, _user=Depends(require_user))
         delete_organization(organization_id)
     except LookupError as exc:
         raise _not_found_error(exc) from exc
+    except ValueError as exc:
+        raise _conflict_error(exc) from exc
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

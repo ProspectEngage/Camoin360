@@ -17,6 +17,17 @@ const fixtures = {
   'contract-backlog': { monthly_totals: months },
   'rfp-success-rate': { service_lines: ['Consulting'], series: [1,2,3,4].map((q) => ({ year:'2025', quarter:String(q), period:`2025 Q${q}`, service_line:'Consulting', won:q+2, lost:2, open:1, won_fee: (q+2)*50000, decided_fee:(q+4)*50000 })) },
   'service-line-financials': { months, service_lines: [{key:'consulting', label:'Consulting'}, {key:'research', label:'Research'}], record_counts:{included:42}, updated_at:'2025-07-01T12:00:00Z' },
+  'pe-revenue': {
+    as_of:'2026-11-22', mrr:4750, arr:57000, active_paying_clients:3, receipts:1750,
+    clients:[
+      {organization_id:1,organization_name:'City of Riverton',subscription:{plan_name:'Professional',amount_cents:175000,billing_frequency:'monthly',status:'active'},monthly_equivalent:1750,annual_equivalent:21000},
+      {organization_id:2,organization_name:'County Development Corp.',subscription:{plan_name:'Enterprise',amount_cents:2400000,billing_frequency:'annual',status:'active'},monthly_equivalent:2000,annual_equivalent:24000},
+      {organization_id:3,organization_name:'Metro Economic Alliance',subscription:{plan_name:'Professional',amount_cents:100000,billing_frequency:'monthly',status:'active'},monthly_equivalent:1000,annual_equivalent:12000},
+    ],
+    payments:[{id:1,organization_id:1,amount_cents:175000,received_on:'2026-11-15',period_start:'2026-11-01',period_end:'2026-11-30',reference:'Example check'}],
+    monthly_breakdown:[{month:'2026-11',mrr:4750,arr:57000,active_paying_clients:3,receipts:1750}],
+    subscription_history:[],
+  },
 };
 http.createServer((req,res) => {
   const url = new URL(req.url, 'http://localhost');

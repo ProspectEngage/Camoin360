@@ -6,7 +6,7 @@ This guide helps employees move familiar work from Power Apps into Camoin 360. I
 
 1. Sign in with your Camoin 360 account. Use **Open dashboard** on the sign-in page to choose a module assigned to you: **Sophie Maintenance**, **Prospecting**, **Consulting**, **Management**, or **Admin**.
 2. Use the left navigation to move between sections *within* a module. The Management navigation has expandable groups. On smaller screens, open its menu to see the sections.
-3. To change modules, sign out, return to the site's root page, and choose another dashboard at sign-in. The app remembers your last dashboard choice. A saved `/management/...` link opens Management when you have access to it, regardless of the sign-in choice. If a module does not open, ask a Camoin 360 administrator to check your assigned modules.
+3. To change modules, use the **Dashboard** selector at the bottom of the sidebar. On a smaller screen, open the navigation menu first. It lists the modules assigned to your account and remembers your last choice. A saved `/management/...` link opens Management when you have access to it. If a module is missing, ask a Camoin 360 administrator to check your assigned modules.
 4. Check the date or filter controls at the top of a report before comparing its numbers with Power Apps or Dynamics. **Reporting period** applies to charts and totals on that Management page; different pages can have different filters.
 
 Camoin 360 reads many operational records from Dynamics. Some screens also use Seamless, Leadfeeder, Google Analytics/Search Console, QuickBooks, or public economic data. A blank chart or source warning can mean the source has no data for the selected filters or has not connected successfully; it does not by itself mean a record was removed.
@@ -47,7 +47,7 @@ Use this module for marketing audiences, visitor review, and ProspectEngage clie
 | **Conversion Analysis** | Compare how marketing lists convert companies to prospects. It shows conversion rate, companies per prospect, year comparisons, PE versus other lead generation, and client rollups. Review the displayed classification and exclusion rules when interpreting results. |
 | **Prospects** | Review qualified ProspectEngage leads from Dynamics. Search, filter by client, status, and date, refresh, and export the visible records. |
 | **Leadfeeder Visits** | Groups website visits by company. Use the summary cards and filters to find high-intent or incomplete visitor records. Open a company to review visits, notes, and status; mark it **Reviewed**, **Follow-Up Needed**, or **Ignored**. **Create Prospect**, **Match Existing Account**, and **Send to AI Prospecting** are currently disabled future actions. |
-| **PE Clients** | Maintains ProspectEngage client organizations, contract expiration dates, and linked users. Search and sort organizations; view details; add or edit organizations; manage user records and passwords; refresh and export the organization list. These controls can change stored records. |
+| **PE Clients** | Maintains ProspectEngage client organizations, contract expiration dates, and linked users. Search and sort organizations; view details; add or edit organizations; manage user records and passwords; refresh and export the organization list. The **Revenue tracking** tab records effective-dated subscription changes and actual payments received, with MRR, ARR, and period reports. These controls can change stored records. |
 
 ## Management
 
@@ -72,6 +72,7 @@ Most chart pages have a **Reporting period** control for all dates, a year/quart
 | **Contract Backlog** | Compare monthly **Total Project Fee** and **Fee for Camoin** by contract date. Use the reporting period to narrow the displayed contract values. |
 | **RFP Overall Success Rate** | Review quarterly win rates by value and by count, with a service-line selector. The value rate weights larger proposals more heavily; the count rate weights each decided proposal equally. |
 | **ProspectEngage Leads** | Track qualified leads sent to PE clients. Search, filter by client, sort, review lead status and dates, refresh, and export the visible leads. |
+| **PE Clients** | Review and change subscription prices and status, record received payments, and compare recurring revenue with actual cash received. Select a year or month for historical figures. Client organizations and users remain in Prospecting → PE Clients. |
 
 ### Marketing
 

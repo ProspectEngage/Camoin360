@@ -66,7 +66,7 @@ function ModuleCheckboxes({ disabledModules = [], onChange, value }) {
   );
 }
 
-export default function AdminDashboard({ onLogout }) {
+export default function AdminDashboard({ onLogout, moduleSwitcher }) {
   const [users, setUsers] = useState([]);
   const [formValues, setFormValues] = useState(emptyForm);
   const [draftModulesByEmail, setDraftModulesByEmail] = useState({});
@@ -196,7 +196,7 @@ export default function AdminDashboard({ onLogout }) {
   }
 
   return (
-    <DashboardShell module="admin" label="User Admin" views={{ users: { label: "Users", title: "User Admin", description: "Create Camoin 360 users and assign the modules they can open." } }} activeView={"users"} onNavigate={() => {}} onLogout={onLogout}>
+    <DashboardShell module="admin" label="User Admin" views={{ users: { label: "Users", title: "User Admin", description: "Create Camoin 360 users and assign the modules they can open." } }} activeView={"users"} onNavigate={() => {}} onLogout={onLogout} moduleSwitcher={moduleSwitcher}>
       <Stack spacing={3}>
 
 

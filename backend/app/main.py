@@ -21,6 +21,7 @@ from .routes.economic_indicators import router as economic_indicators_router
 from .routes.marketing import router as marketing_router
 from .routes.metrics import router as metrics_router
 from .routes.organizations import router as organizations_router
+from .routes.pe_revenue import router as pe_revenue_router
 from .routes.quickbooks import router as quickbooks_router
 from .routes.software_subscriptions import router as software_subscriptions_router
 from .routes.surveys import router as surveys_router
@@ -125,6 +126,7 @@ app.include_router(economic_indicators_router)
 app.include_router(marketing_router)
 app.include_router(metrics_router)
 app.include_router(organizations_router)
+app.include_router(pe_revenue_router)
 app.include_router(quickbooks_router)
 app.include_router(software_subscriptions_router)
 app.include_router(surveys_router)

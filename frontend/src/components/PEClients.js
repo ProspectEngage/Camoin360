@@ -29,6 +29,7 @@ import {
 import { getCached, invalidateApiCache } from "../apiClient";
 import { API_BASE_URL, getApiErrorMessage, getAuthHeaders, handleUnauthorized } from "../auth";
 import { EmptyState, ModalTitle, subtleTableHeadCellSx } from "./UiPrimitives";
+import PERevenue from "./PERevenue";
 
 const API_URL = `${API_BASE_URL}/organizations`;
 const USER_API_URL = `${API_BASE_URL}/users`;
@@ -152,6 +153,7 @@ function SummaryMetricCard({ label, value, description }) {
 }
 
 export default function PEClients() {
+  const [activePanel, setActivePanel] = useState("clients");
   const [clients, setClients] = useState([]);
   const [users, setUsers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -993,6 +995,11 @@ export default function PEClients() {
 
   return (
     <Stack spacing={2.5}>
+      <Stack direction="row" spacing={1} flexWrap="wrap">
+        <Button variant={activePanel === "clients" ? "contained" : "outlined"} onClick={() => setActivePanel("clients")}>Client management</Button>
+        <Button variant={activePanel === "revenue" ? "contained" : "outlined"} onClick={() => setActivePanel("revenue")}>Revenue tracking</Button>
+      </Stack>
+      {activePanel === "revenue" ? <PERevenue organizations={clients} /> : <>
       <Box
         sx={{
           display: "grid",
@@ -1058,6 +1065,7 @@ export default function PEClients() {
         {selectedOrganization ? renderOrganizationDetail() : renderOrganizationTable()}
 
       </Paper>
+      </>}
 
       <Dialog fullWidth maxWidth="sm" onClose={closeAddDialog} open={isAddDialogOpen}>
         <Box component="form" onSubmit={submitOrganization}>

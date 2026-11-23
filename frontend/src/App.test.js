@@ -1,7 +1,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { clearAuthToken, getAuthToken, getAllowedDashboardViews, getPreferredAllowedDashboardView } from "./auth";
+import { clearAuthToken, getAuthToken, getAllowedDashboardViews, getPreferredAllowedDashboardView, savePreferredDashboardView } from "./auth";
 
 window.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -16,7 +16,7 @@ jest.mock("./auth", () => ({
   onUnauthorized: () => () => {},
   savePreferredDashboardView: jest.fn(),
 }));
-jest.mock("./managementDashboard", () => ({ onLogout }) => <button onClick={onLogout}>Management dashboard loaded</button>);
+jest.mock("./managementDashboard", () => ({ onLogout, moduleSwitcher }) => <>{moduleSwitcher?.(false)}<button onClick={onLogout}>Management dashboard loaded</button></>);
 jest.mock("./adminDashboard", () => () => <div>Admin dashboard loaded</div>);
 jest.mock("./consultingDashboard", () => () => <div>Consulting dashboard loaded</div>);
 jest.mock("./prospectingDashboard", () => () => <div>Prospecting dashboard loaded</div>);
@@ -73,7 +73,7 @@ test.each([
   const root = createRoot(container);
   try {
     await act(async () => root.render(<App />));
-    expect(container.textContent).toBe(expected);
+    expect(container.textContent).toContain(expected);
   } finally {
     await act(async () => root.unmount());
     window.history.replaceState({}, "", "/");
@@ -90,6 +90,33 @@ test("a lazy-loaded dashboard can log out and return to login", async () => {
     expect(container.textContent).toBe("Login page");
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test("switches from Management to another permitted dashboard without signing out", async () => {
+  getAllowedDashboardViews.mockReturnValue([
+    { value: "management", label: "Management" },
+    { value: "prospecting", label: "Prospecting" },
+  ]);
+  window.history.replaceState({}, "", "/management/pe-clients");
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  try {
+    await act(async () => root.render(<App />));
+    const selector = container.querySelector('[role="combobox"]');
+    expect(selector.textContent).toContain("Management");
+    await act(async () => {
+      selector.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    });
+    expect(Array.from(document.querySelectorAll('[role="option"]'), (option) => option.textContent)).toEqual(["Management", "Prospecting"]);
+    await act(async () => document.querySelector('[role="option"][data-value="prospecting"]').click());
+    expect(container.textContent).toContain("Prospecting dashboard loaded");
+    expect(window.location.pathname).toBe("/");
+    expect(savePreferredDashboardView).toHaveBeenCalledWith("prospecting");
+    expect(clearAuthToken).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    window.history.replaceState({}, "", "/");
   }
 });
 

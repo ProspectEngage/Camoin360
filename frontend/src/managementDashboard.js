@@ -10,6 +10,7 @@ import {
   Stack,
   Tooltip,
   Typography,
+  useMediaQuery,
   useTheme,
 } from "@mui/material";
 import EconomicIndicators from "./components/EconomicIndicators";
@@ -19,6 +20,7 @@ import EmployeeProductivity from "./components/EmployeeProductivity";
 import MarketingMetrics, { MarketingOverview } from "./components/MarketingMetrics";
 import MarketingSource from "./components/MarketingSource";
 import PEQualifiedLeads from "./components/PEQualifiedLeads";
+import PERevenue from "./components/PERevenue";
 import ProductivityProjects from "./components/ProductivityProjects";
 import ServiceLineFinancials from "./components/ServiceLineFinancials";
 import SoftwareInventory from "./components/SoftwareInventory";
@@ -134,6 +136,11 @@ const views = {
     title: "PE",
     description: "ProspectEngage qualified leads sent to clients.",
   },
+  peClients: {
+    label: "PE Clients",
+    title: "PE Clients Revenue",
+    description: "Subscription pricing, recurring revenue, and received payments for PE clients.",
+  },
 };
 
 const navGroups = [
@@ -147,7 +154,7 @@ const navGroups = [
     key: "sales",
     label: "Sales & Prospects",
     icon: "trending",
-    views: ["salesOutlook", "salesOutlookRfp", "contractBacklogSelected", "rfpOverallSuccessRate", "pe"],
+    views: ["salesOutlook", "salesOutlookRfp", "contractBacklogSelected", "rfpOverallSuccessRate", "pe", "peClients"],
   },
   {
     key: "marketing",
@@ -202,7 +209,7 @@ function NavIcon({ name }) {
   );
 }
 
-export default function ManagementDashboard({ onLogout }) {
+export default function ManagementDashboard({ onLogout, moduleSwitcher }) {
   const [activeView, setActiveView] = useState(() => viewFromPath(window.location.pathname));
   const [openGroup, setOpenGroup] = useState(() => groupForView(viewFromPath(window.location.pathname)));
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -210,6 +217,7 @@ export default function ManagementDashboard({ onLogout }) {
   const sidebarResize = useResizableSidebar("management");
   const [dateFiltersByView, setDateFiltersByView] = useState({});
   const theme = useTheme();
+  const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const currentView = views[activeView];
   const isVisualRefreshView = visualRefreshViews.has(activeView);
   const activeDateFilters = dateFiltersByView[activeView] || EMPTY_DATE_FILTERS;
@@ -276,9 +284,10 @@ export default function ManagementDashboard({ onLogout }) {
           sx={{
             alignSelf: { md: "start" },
             backgroundColor: "primary.main",
+            boxSizing: "border-box",
             color: "common.white",
-            height: { md: "100vh" },
-            overflow: { md: "hidden" },
+            height: { xs: mobileNavOpen ? "100dvh" : "auto", md: "100dvh" },
+            overflow: { xs: mobileNavOpen ? "hidden" : "visible", md: "hidden" },
             p: { xs: 1.5, md: 3 },
             position: { xs: "relative", md: "sticky" },
             top: { md: 0 },
@@ -293,9 +302,9 @@ export default function ManagementDashboard({ onLogout }) {
             />
           )}
           <Stack
-            spacing={{ xs: 1.5, md: 3 }}
+            spacing={{ xs: 1.5, md: 2 }}
             sx={{
-              height: { md: "100%" },
+              height: { xs: mobileNavOpen ? "100%" : "auto", md: "100%" },
               minHeight: 0,
             }}
           >
@@ -376,7 +385,7 @@ export default function ManagementDashboard({ onLogout }) {
                 minHeight: 0,
                 overflowX: "hidden",
                 overflowY: "auto",
-                maxHeight: { xs: "min(60vh, 440px)", md: "none" },
+                maxHeight: { xs: mobileNavOpen ? "none" : "min(60vh, 440px)", md: "none" },
                 pb: { xs: 0.5, md: 0 },
               }}
             >
@@ -475,6 +484,10 @@ export default function ManagementDashboard({ onLogout }) {
               })}
             </Stack>
 
+            <Box sx={{ display: { xs: mobileNavOpen ? "block" : "none", md: sidebarCollapsed ? "none" : "block" }, flexShrink: 0 }}>
+              {moduleSwitcher?.(isDesktop && sidebarCollapsed)}
+            </Box>
+
             <Button
               fullWidth
               onClick={onLogout}
@@ -484,11 +497,13 @@ export default function ManagementDashboard({ onLogout }) {
                 color: "common.white",
                 borderRadius: 1,
                 fontWeight: 800,
+                flexShrink: 0,
                 justifyContent: sidebarCollapsed ? "center" : "flex-start",
+                minHeight: 40,
                 minWidth: 0,
                 px: sidebarCollapsed ? 1 : 2,
                 alignSelf: { xs: "flex-start", md: "stretch" },
-                fontSize: { xs: 0, md: "0.875rem" },
+                fontSize: "0.875rem",
                 position: { xs: "static", md: "static" },
                 width: { xs: mobileNavOpen ? "100%" : 44, md: "100%" },
                 display: { xs: mobileNavOpen ? "inline-flex" : "none", md: "inline-flex" },
@@ -548,7 +563,7 @@ export default function ManagementDashboard({ onLogout }) {
                 </Typography>
               </Box>
 
-              {!isVisualRefreshView ? <AiChatBox
+              {!isVisualRefreshView && activeView !== "peClients" ? <AiChatBox
                 context={analystContext}
                 placeholder={`Ask the AI Analyst about ${currentView.title.toLowerCase()}...`}
                 section={currentView.title}
@@ -579,6 +594,7 @@ export default function ManagementDashboard({ onLogout }) {
               {activeView === "marketingMetrics" && <MarketingMetrics filters={activeDateFilters} />}
               {activeView === "marketingSource" && <MarketingSource />}
               {activeView === "pe" && <PEQualifiedLeads filters={activeDateFilters} />}
+              {activeView === "peClients" && <PERevenue />}
               {activeView === "productivityProjects" && (
                 <ProductivityProjects filters={activeDateFilters} />
               )}

@@ -117,6 +117,44 @@ def initialize_database(force: bool = False):
         )
         wrapped.execute(
             """
+            CREATE TABLE IF NOT EXISTS pe_subscription_versions (
+                id SERIAL PRIMARY KEY,
+                organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+                plan_name TEXT NOT NULL,
+                amount_cents BIGINT NOT NULL CHECK (amount_cents >= 0),
+                billing_frequency TEXT NOT NULL CHECK (billing_frequency IN ('monthly', 'annual')),
+                status TEXT NOT NULL CHECK (status IN ('active', 'inactive', 'canceled')),
+                effective_from DATE NOT NULL,
+                effective_to DATE,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (organization_id, effective_from),
+                CHECK (effective_to IS NULL OR effective_to >= effective_from)
+            )
+            """
+        )
+        wrapped.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pe_subscription_org_date ON pe_subscription_versions (organization_id, effective_from DESC)"
+        )
+        wrapped.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pe_payments (
+                id SERIAL PRIMARY KEY,
+                organization_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+                amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
+                received_on DATE NOT NULL,
+                period_start DATE NOT NULL,
+                period_end DATE NOT NULL,
+                reference TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CHECK (period_end >= period_start)
+            )
+            """
+        )
+        wrapped.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pe_payments_received ON pe_payments (received_on, organization_id)"
+        )
+        wrapped.execute(
+            """
             CREATE TABLE IF NOT EXISTS software_subscriptions (
                 id SERIAL PRIMARY KEY,
                 name TEXT NOT NULL,

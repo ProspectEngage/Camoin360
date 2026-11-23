@@ -28,7 +28,7 @@ function NavIcon({ name }) {
   );
 }
 
-export default function DashboardShell({ module, label, views, activeView, onNavigate, onPrefetch, onLogout, children }) {
+export default function DashboardShell({ module, label, views, activeView, onNavigate, onPrefetch, onLogout, moduleSwitcher, children }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const sidebarResize = useResizableSidebar(module);
@@ -59,9 +59,10 @@ export default function DashboardShell({ module, label, views, activeView, onNav
           sx={{
             alignSelf: { md: "start" },
             backgroundColor: "primary.main",
+            boxSizing: "border-box",
             color: "common.white",
-            height: { md: "100vh" },
-            overflow: { md: "hidden" },
+            height: { xs: mobileNavOpen ? "100dvh" : "auto", md: "100dvh" },
+            overflow: { xs: mobileNavOpen ? "hidden" : "visible", md: "hidden" },
             p: { xs: 1.5, md: 3 },
             position: { xs: "relative", md: "sticky" },
             top: { md: 0 },
@@ -76,9 +77,9 @@ export default function DashboardShell({ module, label, views, activeView, onNav
             />
           )}
           <Stack
-            spacing={{ xs: 1.5, md: 3 }}
+            spacing={{ xs: 1.5, md: 2 }}
             sx={{
-              height: { md: "100%" },
+              height: { xs: mobileNavOpen ? "100%" : "auto", md: "100%" },
               minHeight: 0,
             }}
           >
@@ -159,7 +160,7 @@ export default function DashboardShell({ module, label, views, activeView, onNav
                 minHeight: 0,
                 overflowX: "hidden",
                 overflowY: "auto",
-                maxHeight: { xs: "min(60vh, 440px)", md: "none" },
+                maxHeight: { xs: mobileNavOpen ? "none" : "min(60vh, 440px)", md: "none" },
                 pb: { xs: 0.5, md: 0 },
               }}
             >
@@ -185,6 +186,10 @@ export default function DashboardShell({ module, label, views, activeView, onNav
               ))}
             </Stack>
 
+            <Box sx={{ display: { xs: mobileNavOpen ? "block" : "none", md: collapsed ? "none" : "block" }, flexShrink: 0 }}>
+              {moduleSwitcher?.(collapsed)}
+            </Box>
+
             <Button
               fullWidth
               aria-label="Sign out"
@@ -195,7 +200,9 @@ export default function DashboardShell({ module, label, views, activeView, onNav
                 color: "common.white",
                 borderRadius: 1,
                 fontWeight: 800,
+                flexShrink: 0,
                 justifyContent: collapsed ? "center" : "flex-start",
+                minHeight: 40,
                 minWidth: 0,
                 px: collapsed ? 1 : 2,
                 alignSelf: { xs: "flex-start", md: "stretch" },

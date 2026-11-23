@@ -13,6 +13,7 @@ import {
 } from "./auth";
 import LegalPage from "./legalPages";
 import Login from "./login";
+import DashboardModuleSelect from "./components/DashboardModuleSelect";
 
 const AdminDashboard = lazy(() => import("./adminDashboard"));
 const LandingPage = lazy(() => import("./landingPage"));
@@ -65,6 +66,14 @@ export default function App() {
     setCurrentUser(null);
   }
 
+  function handleDashboardChange(event) {
+    const nextDashboardView = event.target.value;
+    if (!getAllowedDashboardViews(currentUser).some((option) => option.value === nextDashboardView)) return;
+    savePreferredDashboardView(nextDashboardView);
+    window.history.pushState({}, "", nextDashboardView === "management" ? "/management/overview" : "/");
+    setDashboardView(nextDashboardView);
+  }
+
   if (window.location.pathname === "/terms") {
     return <LegalPage type="terms" />;
   }
@@ -100,7 +109,17 @@ export default function App() {
 
     return (
       <Suspense fallback={<LoadingView />}>
-        <Dashboard onLogout={handleLogout} />
+        <Dashboard
+          onLogout={handleLogout}
+          moduleSwitcher={(collapsed) => (
+            <DashboardModuleSelect
+              options={allowedDashboardViews}
+              value={resolvedDashboardView}
+              onChange={handleDashboardChange}
+              collapsed={collapsed}
+            />
+          )}
+        />
       </Suspense>
     );
   }

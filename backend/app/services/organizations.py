@@ -184,6 +184,12 @@ def delete_organization(organization_id: int):
         if existing_row is None:
             raise LookupError("Organization not found")
 
+        for table in ("pe_subscription_versions", "pe_payments"):
+            if connection.execute(
+                f"SELECT 1 FROM {table} WHERE organization_id = ? LIMIT 1", (organization_id,)
+            ).fetchone():
+                raise ValueError("Organizations with billing history cannot be deleted")
+
         connection.execute("DELETE FROM client_users WHERE organization_id = ?", (organization_id,))
         connection.execute("DELETE FROM organizations WHERE id = ?", (organization_id,))
 

@@ -57,7 +57,7 @@ function getViewForPath(pathname) {
   return matchingView?.[0] || "seamless";
 }
 
-export default function LandingPage({ onLogout }) {
+export default function LandingPage({ onLogout, moduleSwitcher }) {
   const [activeView, setActiveView] = useState(() => getViewForPath(window.location.pathname));
 
   function navigateToView(viewKey) {
@@ -91,7 +91,7 @@ export default function LandingPage({ onLogout }) {
   }, []);
 
   return (
-    <DashboardShell module="maintenance" label="Sophie Maintenance" views={views} activeView={activeView} onNavigate={navigateToView} onLogout={onLogout} onPrefetch={prefetchView}>
+    <DashboardShell module="maintenance" label="Sophie Maintenance" views={views} activeView={activeView} onNavigate={navigateToView} onLogout={onLogout} onPrefetch={prefetchView} moduleSwitcher={moduleSwitcher}>
       <Stack spacing={3}>
 
 

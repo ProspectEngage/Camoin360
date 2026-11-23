@@ -41,7 +41,7 @@ const tabs = {
     label: "PE Clients",
     icon: "clients",
     title: "PE Clients",
-    description: "ProspectEngage client organizations, users, and contract expiration dates.",
+    description: "ProspectEngage client organizations, users, contract dates, subscriptions, and received payments.",
     parent: "leadfeeder",
   },
 };
@@ -54,7 +54,7 @@ const prefetchUrls = {
 };
 
 
-export default function ProspectingDashboard({ onLogout }) {
+export default function ProspectingDashboard({ onLogout, moduleSwitcher }) {
   const [activeTab, setActiveTab] = useState("marketing");
 
   function prefetchTab(tabKey) {
@@ -69,7 +69,7 @@ export default function ProspectingDashboard({ onLogout }) {
   }
 
   return (
-    <DashboardShell module="prospecting" label="Prospecting" views={tabs} activeView={activeTab} onNavigate={setActiveTab} onLogout={onLogout} onPrefetch={prefetchTab}>
+    <DashboardShell module="prospecting" label="Prospecting" views={tabs} activeView={activeTab} onNavigate={setActiveTab} onLogout={onLogout} onPrefetch={prefetchTab} moduleSwitcher={moduleSwitcher}>
       <Stack spacing={3}>
 
 
